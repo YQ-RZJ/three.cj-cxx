@@ -54,6 +54,9 @@ jobs:
         with:
           update: false
           msystem: MINGW64
+          # CI-PATCH: 固定安装根——runner 预装的 C:\msys64 是精简实例（无 perl），
+          # 显式指定 destination 后经 MSYS2_ROOT 传给各 build.py（httpclient 的 openssl 需要 perl）
+          destination: C:\msys2-full
           install: >-
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-cmake
@@ -61,6 +64,11 @@ jobs:
             make
             perl
             python
+
+      - name: Export MSYS2 root
+        shell: pwsh
+        run: |
+          "MSYS2_ROOT=C:\msys2-full" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Install xmake (bgfx toolchain)
         uses: xmake-io/github-action-setup-xmake@v1
