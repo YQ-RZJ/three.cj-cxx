@@ -1,0 +1,71 @@
+name: native-libs-ohos
+
+on:
+  workflow_dispatch:
+    inputs:
+      sdk-url:
+        description: "OHOS SDK (linux) 下载地址，默认华为云 6.0.0.2-Release"
+        required: false
+        default: "https://repo.huaweicloud.com/harmonyos/os/6.0.0.2-Release/ohos-sdk-windows_linux-public.tar.gz"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64-v8a]          # OHOS 设备以 arm64 为主；x86_64 模拟器可按需加
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache OHOS SDK
+        id: sdk-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/ohos-sdk-native
+          key: ohos-sdk-native-6.0.0.2
+
+      - name: Download & extract OHOS SDK (native)
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: |
+          cd $RUNNER_TEMP
+          wget -q "${{ inputs.sdk-url }}" -O ohos-sdk.tar.gz
+          # 外层 tar 内是 linux/windows 两份；取 linux 包再解出 native/
+          tar -xzf ohos-sdk.tar.gz
+          LINUX_TGZ=$(find . -name "ohos-sdk-full-linux-*.tar.gz" | head -1)
+          if [ -n "$LINUX_TGZ" ]; then tar -xzf "$LINUX_TGZ"; fi
+          NATIVE_DIR=$(find . -type d -name native | grep -i linux | head -1)
+          if [ -z "$NATIVE_DIR" ]; then NATIVE_DIR=$(find . -type d -name native | head -1); fi
+          mkdir -p ~/ohos-sdk-native
+          cp -r "$NATIVE_DIR"/* ~/ohos-sdk-native/
+          echo "SDK native contents:" && ls ~/ohos-sdk-native | head
+
+      - name: Build all libraries (incl. SDL3 shared for static packaging)
+        run: |
+          python3 .github/scripts/ci_build.py \
+            --platform OPHM --arch ${{ matrix.arch }} \
+            --ohos-sdk "$HOME/ohos-sdk-native"
+
+      # OHOS 特例：static 目录内需带 <arch>/libSDL3.so（对齐 three/test/ohos/base/entry/libs）
+      - name: Attach libSDL3.so into static package
+        run: |
+          SO=dist/ohos/${{ matrix.arch }}/shared/libSDL3.so
+          if [ -f "$SO" ]; then
+            mkdir -p dist/ohos/${{ matrix.arch }}/static/${{ matrix.arch }}
+            cp "$SO" dist/ohos/${{ matrix.arch }}/static/${{ matrix.arch }}/libSDL3.so
+            echo "attached: static/${{ matrix.arch }}/libSDL3.so"
+          else
+            echo "::warning::libSDL3.so not found in shared output; static package missing SDL3 dylib"
+          fi
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-libs-ohos-${{ matrix.arch }}
+          path: dist/ohos/
+          retention-days: 30

@@ -1,0 +1,28 @@
+name: native-libs-ios
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: arm64
+    runs-on: macos-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      # 当前仅 tracy 的 build.py 声明支持 IOS 工具链（xcode）；
+      # 其余库如需 IOS 支持须先在各 build.py 中补 IOS 分支。
+      - name: Build (tracy only for now)
+        run: |
+          python3 .github/scripts/ci_build.py --platform IOS --arch arm64-v8a
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-libs-ios-arm64-v8a
+          path: dist/ios/
+          retention-days: 30
