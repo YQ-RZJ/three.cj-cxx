@@ -62,10 +62,9 @@ jobs:
             python
 
       - name: Install xmake (bgfx toolchain)
-        shell: pwsh
-        run: |
-          Invoke-Expression (Invoke-WebRequest 'https://xmake.io/psget.text' -UseBasicParsing).Content
-          "C:\Program Files\xmake" | Out-File -FilePath $env:GITHUB_PATH -Append
+        uses: xmake-io/setup-xmake@v1
+        with:
+          xmake-version: latest
 
       # arm64-v8a 走 llvm-mingw（aarch64 三元组，build.py --mingw 指定）
       - name: Install llvm-mingw (arm64)
