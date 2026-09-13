@@ -446,11 +446,20 @@ def resolve_msys2(args):
         reverse=True)
     fallback = None
     for c in candidates:
-        if c and os.path.isfile(os.path.join(c, "usr", "bin", "bash.exe")):
+        if c:
+            # CI-PATCH: setup-msys2 的 destination=SFX 解包根会带 msys64\ 一级前缀
+            # （如 C:\msys2-full\msys64），自动兼容两种布局
+            if not os.path.isfile(os.path.join(c, "usr", "bin", "bash.exe")) \
+                    and os.path.isfile(os.path.join(c, "msys64", "usr", "bin", "bash.exe")):
+                c = os.path.join(c, "msys64")
+            if not os.path.isfile(os.path.join(c, "usr", "bin", "bash.exe")):
+                continue
             c = os.path.normpath(c)
             if os.path.isfile(os.path.join(c, "usr", "bin", "perl.exe")):
                 return c          # 完整实例（openssl Configure 需要 perl）
             fallback = fallback or c
+    if fallback:
+        print("  [WARN] MSYS2 实例 %s 缺少 perl，openssl Configure 将失败" % fallback)
     return fallback
 
 
