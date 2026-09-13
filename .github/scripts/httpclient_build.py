@@ -39,6 +39,21 @@ import sys
 import time
 import zipfile
 
+# CI-PATCH: --libs 选择性构建（默认全量；未知库名直接报错；输出保持声明顺序）
+_ALLOWED_LIBS = ["openssl", "tlsbridge"]
+
+
+def parse_libs_arg(libs_str, allowed, group):
+    if not libs_str:
+        return list(allowed)
+    wanted = [s.strip().lower() for s in libs_str.split(",") if s.strip()]
+    unknown = [w for w in wanted if w not in allowed]
+    if unknown:
+        sys.exit("[%s] --libs 未知库名: %s（可选：%s）"
+                 % (group, ",".join(unknown), ",".join(allowed)))
+    return [w for w in allowed if w in set(wanted)]
+
+
 # CI-PATCH: GitHub Windows runner 默认 cp1252 stdout，中文输出会 UnicodeEncodeError
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -327,6 +342,8 @@ def parse_args():
                     help="只编译，不打包 zip")
     ap.add_argument("--no-trim", action="store_true",
                     help="不进行宏裁剪（编译完整 OpenSSL）")
+    ap.add_argument("--libs", default=None,
+                    help="逗号分隔的库清单（按序）：openssl,tlsbridge（默认=全量编译）")
     return ap.parse_args()
 
 
@@ -847,6 +864,10 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
         # 按 x86_64 生成汇编与探测 gcc，交叉时必须：
         #   1) 注入 llvm-mingw 的 aarch64-w64-mingw32-* 工具链（CC/AR/...）
         #   2) no-asm（x86_64 perlasm 产物在 arm64 上不可用）
+        #   3) make 命令行强制 RC=交叉 windres——OpenSSL 的 Makefile 内写死
+        #      RC=windres（宿主 x64），env 变量覆盖不了，导致链接 DLL 时
+        #      "machine type x64 conflicts with arm64"
+        make_overrides = ""
         if arch == "arm64-v8a":
             cross_cc = os.path.join(mingw_bin, "aarch64-w64-mingw32-clang.exe")
             if os.path.isfile(cross_cc):
@@ -855,6 +876,7 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
                 env["AR"] = "aarch64-w64-mingw32-ar"
                 env["RANLIB"] = "aarch64-w64-mingw32-ranlib"
                 env["RC"] = "aarch64-w64-mingw32-windres"
+                make_overrides = "RC=aarch64-w64-mingw32-windres"
                 config_opts.append("no-asm")
                 print("    [CROSS] arm64-v8a: %s (no-asm)" % env["CC"])
             else:
@@ -873,9 +895,9 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
             'perl ./Configure %s 2>&1\n'
             'echo "CONFIGURE_EXIT:$?"\n'
             'echo "=== Building OpenSSL === "\n'
-            'make -j%d 2>&1\n'
+            'make %s -j%d 2>&1\n'
             'echo "MAKE_EXIT:$?"\n'
-        ) % (mingw_bin_msys, ssl_dir_msys, config_str, ctx.get("jobs", 4))
+        ) % (mingw_bin_msys, ssl_dir_msys, config_str, make_overrides, ctx.get("jobs", 4))
 
         tmp_sh = os.path.join(ssl_dir, "_build_openssl.sh")
         with open(tmp_sh, "w", encoding="utf-8") as f:
@@ -1344,6 +1366,9 @@ def main():
 
         print("\n===== 平台 %s（%s 主机）=====" % (platform, host))
 
+        # CI-PATCH: --libs 选择性构建（默认全量）：openssl,tlsbridge 按序只编指定库
+        wanted = set(parse_libs_arg(args.libs, _ALLOWED_LIBS, "httpclient"))
+
         for mode in modes:
             for arch in arches:
                 for libtype in libtypes:
@@ -1352,27 +1377,33 @@ def main():
                         combo = "%s-%s-%s-%s" % (platform.lower(), arch, mode, libtype)
 
                         # 编译 OpenSSL
-                        log_path = os.path.join(LOG_DIR, "openssl-%s.log" % combo)
-                        if not build_openssl(
-                            platform, arch, mode, libtype, toolchain, host, ctx,
-                            OPENSSL_DIR, log_path,
-                        ):
-                            any_failed = True
-                            results.append((combo, "fail", "OpenSSL 编译失败"))
-                            if args.stop_on_error:
-                                sys.exit(1)
-                            continue
+                        if "openssl" not in wanted:
+                            print("  [skip] openssl（--libs 未包含）")
+                        else:
+                            log_path = os.path.join(LOG_DIR, "openssl-%s.log" % combo)
+                            if not build_openssl(
+                                platform, arch, mode, libtype, toolchain, host, ctx,
+                                OPENSSL_DIR, log_path,
+                            ):
+                                any_failed = True
+                                results.append((combo, "fail", "OpenSSL 编译失败"))
+                                if args.stop_on_error:
+                                    sys.exit(1)
+                                continue
 
                         # 编译 tlsbridge
-                        log_path = os.path.join(LOG_DIR, "tlsbridge-%s.log" % combo)
-                        if not build_tlsbridge(
-                            platform, arch, mode, host, ctx, OPENSSL_DIR, log_path,
-                        ):
-                            any_failed = True
-                            results.append((combo, "fail", "tlsbridge 编译失败"))
-                            if args.stop_on_error:
-                                sys.exit(1)
-                            continue
+                        if "tlsbridge" not in wanted:
+                            print("  [skip] tlsbridge（--libs 未包含）")
+                        else:
+                            log_path = os.path.join(LOG_DIR, "tlsbridge-%s.log" % combo)
+                            if not build_tlsbridge(
+                                platform, arch, mode, host, ctx, OPENSSL_DIR, log_path,
+                            ):
+                                any_failed = True
+                                results.append((combo, "fail", "tlsbridge 编译失败"))
+                                if args.stop_on_error:
+                                    sys.exit(1)
+                                continue
 
                         # 复制库文件到 libs/
                         if not args.no_libs_copy:

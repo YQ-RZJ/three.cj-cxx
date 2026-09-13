@@ -50,6 +50,22 @@ import subprocess
 import sys
 import zipfile
 
+# CI-PATCH: --libs 选择性构建（默认全量；未知库名直接报错；输出保持声明顺序）
+_ALLOWED_LIBS = ['ffi', 'napi', 'dlbridge']
+
+
+def parse_libs_arg(libs_str, allowed, group):
+    if not libs_str:
+        return list(allowed)
+    wanted = [s.strip().lower() for s in libs_str.split(",") if s.strip()]
+    unknown = [w for w in wanted if w not in allowed]
+    if unknown:
+        sys.exit("[%s] --libs 未知库名: %s（可选：%s）"
+                 % (group, ",".join(unknown), ",".join(allowed)))
+    return [w for w in allowed if w in set(wanted)]
+
+
+
 # CI-PATCH: GitHub Windows runner 默认 cp1252 stdout，中文输出会 UnicodeEncodeError
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -161,6 +177,8 @@ def parse_args():
                     help="跳过 dlbridge (动态库加载桥) 的编译")
     ap.add_argument("--cj-runtime-lib", default=None,
                     help="仓颉运行时库目录（用于动态库链接，如 C:/venv/Cangjie/runtime/lib/windows_x86_64_cjnative）")
+    ap.add_argument("--libs", default=None,
+                    help="逗号分隔的库清单（按序）：ffi,napi,dlbridge（默认=全量编译）")
     return ap.parse_args()
 
 
@@ -681,6 +699,11 @@ def build_one(platform, mode, arch, libtype, toolchain, host, args, ctx, log_pat
         if os.path.isdir(mbin):
             env["PATH"] = mbin + os.pathsep + env["PATH"]
 
+    # CI-PATCH: --libs 选择性构建（默认全量）：ffi/napi/dlbridge 三段独立过滤
+    # （napi 仅 OPHM 编译，不受 --libs 控制）
+    if "ffi" not in libs_wanted:
+        print("  [skip] requireCJLib (C FFI)（--libs 未包含）")
+        return True
     # 1) 编译 requireCJLib (C FFI 变体)
     print("  [%s/%s/%s] 编译 requireCJLib (C FFI) ..." % (mode, arch, platform))
     ffi_build = os.path.join(base_build, "ffi")
@@ -692,21 +715,27 @@ def build_one(platform, mode, arch, libtype, toolchain, host, args, ctx, log_pat
     # 2) 编译 requireCJLib-ark (NAPI 变体)
     #    NAPI 变体需要 OHOS NDK 的 node_api.h，仅 OPHM 平台编译
     if not args.skip_napi and platform == "OPHM":
-        print("  [%s/%s/%s] 编译 requireCJLib-ark (NAPI) ..." % (mode, arch, platform))
-        napi_build = os.path.join(base_build, "napi")
-        napi_stage = os.path.join(base_stage, "napi")
-        if not build_subproject(NAPI_SRC_DIR, napi_build, napi_stage,
-                                cfg_napi, is_multi, mode, env, log_path, args.jobs):
-            return False
+        if "napi" not in libs_wanted:
+            print("  [skip] requireCJLib-ark (NAPI)（--libs 未包含）")
+        else:
+            print("  [%s/%s/%s] 编译 requireCJLib-ark (NAPI) ..." % (mode, arch, platform))
+            napi_build = os.path.join(base_build, "napi")
+            napi_stage = os.path.join(base_stage, "napi")
+            if not build_subproject(NAPI_SRC_DIR, napi_build, napi_stage,
+                                    cfg_napi, is_multi, mode, env, log_path, args.jobs):
+                return False
 
     # 3) 编译 dlbridge (动态库加载桥)
     if not args.skip_dlbridge:
-        print("  [%s/%s/%s] 编译 dlbridge ..." % (mode, arch, platform))
-        dlb_build = os.path.join(base_build, "dlbridge")
-        dlb_stage = os.path.join(base_stage, "dlbridge")
-        if not build_subproject(DLBRIDGE_SRC_DIR, dlb_build, dlb_stage,
-                                cfg_dlb, is_multi, mode, env, log_path, args.jobs):
-            return False
+        if "dlbridge" not in libs_wanted:
+            print("  [skip] dlbridge（--libs 未包含）")
+        else:
+            print("  [%s/%s/%s] 编译 dlbridge ..." % (mode, arch, platform))
+            dlb_build = os.path.join(base_build, "dlbridge")
+            dlb_stage = os.path.join(base_stage, "dlbridge")
+            if not build_subproject(DLBRIDGE_SRC_DIR, dlb_build, dlb_stage,
+                                    cfg_dlb, is_multi, mode, env, log_path, args.jobs):
+                return False
 
     return True
 
@@ -792,6 +821,7 @@ def package(platform, mode, arch, libtype, toolchain, dist_dir, args):
 def main():
     global _BATCH_FLAG
     args = parse_args()
+    libs_wanted = parse_libs_arg(args.libs, _ALLOWED_LIBS, "cjbridge")
     set_batch_flag(args.batch)
 
     if args.clean:

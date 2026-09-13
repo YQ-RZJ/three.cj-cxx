@@ -71,6 +71,17 @@ def script_supports(script: str, opt: str) -> bool:
         return opt in re.findall(r"add_argument\(\s*\"(--[\w-]+)\"", f.read())
 
 
+def script_allowed_libs(script: str) -> list:
+    """CI-PATCH: 扫描组脚本的 _ALLOWED_LIBS 常量，得到其可选择的库名清单"""
+    import re
+    with open(script, encoding="utf-8") as f:
+        m = re.search(r"_ALLOWED_LIBS\s*=\s*(\[[^\]]*\])", f.read())
+        if not m:
+            return []
+        inner = m.group(1)[1:-1]    # 去掉外层方括号后再按逗号切分（否则首尾残留引号）
+        return [s.strip().strip("'\"") for s in inner.split(",") if s.strip()]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--platform", required=True,
@@ -83,6 +94,12 @@ def main():
                     help="逗号分隔：debug,release（缺省=各组脚本默认全编排）")
     ap.add_argument("--libtypes", default=None,
                     help="逗号分隔：static,shared（缺省=各组脚本默认全编排）")
+    # CI-PATCH: 选择性构建——组级按序过滤 + 库级全局清单（分发到各组，
+    # 组收到 0 个自己的库时整组跳过）；缺省=全量
+    ap.add_argument("--groups", default=None,
+                    help="逗号分隔的组清单（按序）：bgfx,httpclient,imgui,jolt,luajit,openal,sdl,tracy,cjbridge")
+    ap.add_argument("--libs", default=None,
+                    help="逗号分隔的库清单（按序，全局）：如 bx,bgfx,openssl,tlsbridge")
     ap.add_argument("--jobs", type=int, default=4)
     args = ap.parse_args()
 
@@ -102,7 +119,32 @@ def main():
     # OHOS static 特例需要 SDL3.so（sdl 组 shared 产物），编译前先记录占位
     sdl_so_hint = os.path.join(DIST_ROOT, os_dir, args.arch, "shared", "libSDL3.so")
 
-    for group in PLATFORM_GROUPS[plat]:
+    # CI-PATCH: --groups 组级按序过滤（缺省=全量，顺序以 --groups 为准）
+    all_groups = PLATFORM_GROUPS[plat]
+    if args.groups:
+        wanted_groups = [g.strip() for g in args.groups.split(",") if g.strip()]
+        unknown = [g for g in wanted_groups if g not in all_groups]
+        if unknown:
+            sys.exit(f"[ci] --groups 未知组名: {','.join(unknown)}（可选 {','.join(all_groups)}）")
+        groups = [g for g in wanted_groups if g in all_groups]
+        if not groups:
+            sys.exit(f"[ci] --groups 无本平台（{plat}）可编的组")
+    else:
+        groups = all_groups
+
+    # CI-PATCH: --libs 全局库清单（缺省=全量）。
+    # 全局校验未知库名 + 按组分发：组收到 0 个自己的库时整组跳过。
+    if args.libs:
+        global_wanted = [s.strip().lower() for s in args.libs.split(",") if s.strip()]
+        known = {l for g in all_groups
+                 for l in script_allowed_libs(os.path.join(HERE, f"{g}_build.py"))}
+        unknown = [l for l in global_wanted if l not in known]
+        if unknown:
+            sys.exit(f"[ci] --libs 未知库名: {','.join(unknown)}（可选 {','.join(sorted(known))}）")
+    else:
+        global_wanted = None    # None = 全量，不传 --libs
+
+    for group in groups:
         script = os.path.join(HERE, f"{group}_build.py")
         cmd = [sys.executable, script,
                "--platforms", plat,
@@ -118,6 +160,14 @@ def main():
             cmd += ["--modes", args.modes]
         if args.libtypes and script_supports(script, "--libtype"):
             cmd += ["--libtype", args.libtypes]
+        # --libs 按组分发（组脚本自行校验；只传属于自己的库，保持全局顺序）
+        if global_wanted is not None:
+            allowed = script_allowed_libs(script)
+            subset = [l for l in global_wanted if l in allowed]
+            if not subset:
+                print(f"[ci] skip {group}（--libs 未包含本组库）", flush=True)
+                continue
+            cmd += ["--libs", ",".join(subset)]
         run(cmd, env)
 
     # ---- 归包：dist/<os>/<arch>/{static,shared} ----

@@ -15,6 +15,14 @@ on:
         description: "static,shared（留空=脚本默认全编排）"
         required: false
         default: ""
+      groups:
+        description: "组清单（按序，留空则按全量组顺序）"
+        required: false
+        default: "bgfx,httpclient,imgui,jolt,luajit,openal,sdl,tracy,cjbridge"
+      libs:
+        description: "库清单（按序，留空=全部库）"
+        required: false
+        default: "bx,bimg,bimg_capi,bgfx,geometryc_capi,shaderc_capi,openssl,tlsbridge,cimgui,sdl,openal,miniaudio,jolt,luajit,ffi,napi,dlbridge,tracy"
       llvm-mingw-url:
         description: "llvm-mingw (arm64 交叉) 下载地址，可改版本"
         required: false
@@ -95,6 +103,8 @@ jobs:
           $cmd = "python .github/scripts/ci_build.py --platform WINDOWS --arch ${{ matrix.arch }}$mingwArg"
           if ("${{ inputs.modes }}" -ne "") { $cmd += " --modes ${{ inputs.modes }}" }
           if ("${{ inputs.libtypes }}" -ne "") { $cmd += " --libtypes ${{ inputs.libtypes }}" }
+          if ("${{ inputs.groups }}" -ne "") { $cmd += " --groups ${{ inputs.groups }}" }
+          if ("${{ inputs.libs }}" -ne "") { $cmd += " --libs ${{ inputs.libs }}" }
           bash -lc "$cmd"
 
       - name: Upload dist

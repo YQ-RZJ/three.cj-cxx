@@ -65,6 +65,22 @@ import subprocess
 import sys
 import zipfile
 
+# CI-PATCH: --libs 选择性构建（默认全量；未知库名直接报错；输出保持声明顺序）
+_ALLOWED_LIBS = ['cimgui']
+
+
+def parse_libs_arg(libs_str, allowed, group):
+    if not libs_str:
+        return list(allowed)
+    wanted = [s.strip().lower() for s in libs_str.split(",") if s.strip()]
+    unknown = [w for w in wanted if w not in allowed]
+    if unknown:
+        sys.exit("[%s] --libs 未知库名: %s（可选：%s）"
+                 % (group, ",".join(unknown), ",".join(allowed)))
+    return [w for w in allowed if w in set(wanted)]
+
+
+
 # CI-PATCH: GitHub Windows runner 默认 cp1252 stdout，中文输出会 UnicodeEncodeError
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -269,6 +285,8 @@ def parse_args():
                     help="只编译，不打包 zip")
     ap.add_argument("--generator", default=None,
                     help="强制指定 CMake 生成器（默认按平台自动选择，如 Ninja / Visual Studio 17 2022 / Xcode）")
+    ap.add_argument("--libs", default=None,
+                    help="逗号分隔的库清单（按序）：cimgui（默认=全量编译）")
     return ap.parse_args()
 
 
@@ -1085,6 +1103,10 @@ def package(platform, mode, arch, libtype, toolchain, dist_dir):
 def main():
     global _BATCH_FLAG
     args = parse_args()
+    libs_wanted = parse_libs_arg(args.libs, _ALLOWED_LIBS, "imgui")
+    if "cimgui" not in libs_wanted:
+        print("[imgui] --libs 未包含 cimgui，整组跳过")
+        return
     set_batch_flag(args.batch)
 
     if args.clean:

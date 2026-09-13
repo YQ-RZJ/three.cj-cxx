@@ -48,6 +48,22 @@ import subprocess
 import sys
 import zipfile
 
+# CI-PATCH: --libs 选择性构建（默认全量；未知库名直接报错；输出保持声明顺序）
+_ALLOWED_LIBS = ['openal', 'miniaudio']
+
+
+def parse_libs_arg(libs_str, allowed, group):
+    if not libs_str:
+        return list(allowed)
+    wanted = [s.strip().lower() for s in libs_str.split(",") if s.strip()]
+    unknown = [w for w in wanted if w not in allowed]
+    if unknown:
+        sys.exit("[%s] --libs 未知库名: %s（可选：%s）"
+                 % (group, ",".join(unknown), ",".join(allowed)))
+    return [w for w in allowed if w in set(wanted)]
+
+
+
 # CI-PATCH: GitHub Windows runner 默认 cp1252 stdout，中文输出会 UnicodeEncodeError
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -162,6 +178,8 @@ def parse_args():
                     help="只编译，不打包 zip")
     ap.add_argument("--generator", default=None,
                     help="强制指定 CMake 生成器（默认按平台自动选择，如 Ninja / Visual Studio 17 2022 / Xcode）")
+    ap.add_argument("--libs", default=None,
+                    help="逗号分隔的库清单（按序）：openal,miniaudio（默认=全量编译）")
     return ap.parse_args()
 
 
@@ -762,6 +780,8 @@ def build_env(platform, emsdk):
 # 构建单个 (平台, 模式, 架构, 库类型, 工具链) 组合
 # ---------------------------------------------------------------------------
 def build_one(platform, mode, arch, libtype, toolchain, host, args, ctx, log_path):
+    # CI-PATCH: --libs 选择性构建（默认全量）：openal-soft 与 miniaudio 两段独立过滤
+    wanted = parse_libs_arg(args.libs, _ALLOWED_LIBS, "openal")
     tag = "%s-%s-%s-%s-%s" % (platform.lower(), arch, mode, libtype, toolchain)
     build_dir = os.path.join(OUTPUT_DIR, "build-" + tag)
     stage_dir = os.path.join(OUTPUT_DIR, "stage-" + tag)
@@ -776,26 +796,32 @@ def build_one(platform, mode, arch, libtype, toolchain, host, args, ctx, log_pat
     env = build_env(platform, ctx.get("emsdk"))
     cmake = cmake_path()
 
-    config_cmd = [cmake, "-S", SRC_DIR, "-B", build_dir] + cfg
-    print("  [%s/%s/%s] 配置 %s (toolchain=%s) ..." % (mode, arch, libtype, platform, toolchain))
-    if run(config_cmd, SCRIPT_DIR, env, log_path) != 0:
-        return False
+    if "openal" not in wanted:
+        print("  [skip] openal-soft（--libs 未包含）")
+    else:
+        config_cmd = [cmake, "-S", SRC_DIR, "-B", build_dir] + cfg
+        print("  [%s/%s/%s] 配置 %s (toolchain=%s) ..." % (mode, arch, libtype, platform, toolchain))
+        if run(config_cmd, SCRIPT_DIR, env, log_path) != 0:
+            return False
 
-    print("  [%s/%s/%s] 编译 %s ..." % (mode, arch, libtype, platform))
-    build_cmd = [cmake, "--build", build_dir, "--parallel", str(args.jobs)]
-    if is_multi:
-        build_cmd += ["--config", mode.capitalize()]
-    if run(build_cmd, SCRIPT_DIR, env, log_path) != 0:
-        return False
+        print("  [%s/%s/%s] 编译 %s ..." % (mode, arch, libtype, platform))
+        build_cmd = [cmake, "--build", build_dir, "--parallel", str(args.jobs)]
+        if is_multi:
+            build_cmd += ["--config", mode.capitalize()]
+        if run(build_cmd, SCRIPT_DIR, env, log_path) != 0:
+            return False
 
-    print("  [%s/%s/%s] 安装到 %s ..." % (mode, arch, libtype, stage_dir))
-    install_cmd = [cmake, "--install", build_dir, "--prefix", stage_dir]
-    if is_multi:
-        install_cmd += ["--config", mode.capitalize()]
-    if run(install_cmd, SCRIPT_DIR, env, log_path) != 0:
-        return False
+        print("  [%s/%s/%s] 安装到 %s ..." % (mode, arch, libtype, stage_dir))
+        install_cmd = [cmake, "--install", build_dir, "--prefix", stage_dir]
+        if is_multi:
+            install_cmd += ["--config", mode.capitalize()]
+        if run(install_cmd, SCRIPT_DIR, env, log_path) != 0:
+            return False
 
     # ---- miniaudio：独立构建目录，安装到同一 stage（与 openal-soft 一起打包）----
+    if "miniaudio" not in wanted:
+        print("  [skip] miniaudio（--libs 未包含）")
+        return True
     ma_build_dir = os.path.join(OUTPUT_DIR, "build-ma-" + tag)
     if os.path.isdir(ma_build_dir):
         shutil.rmtree(ma_build_dir, ignore_errors=True)
@@ -876,6 +902,7 @@ def package(platform, mode, arch, libtype, toolchain, dist_dir, args):
 def main():
     global _BATCH_FLAG
     args = parse_args()
+    libs_wanted = parse_libs_arg(args.libs, _ALLOWED_LIBS, "openal")
     set_batch_flag(args.batch)
 
     if args.clean:

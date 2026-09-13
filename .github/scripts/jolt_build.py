@@ -49,6 +49,22 @@ import subprocess
 import sys
 import zipfile
 
+# CI-PATCH: --libs 选择性构建（默认全量；未知库名直接报错；输出保持声明顺序）
+_ALLOWED_LIBS = ['jolt']
+
+
+def parse_libs_arg(libs_str, allowed, group):
+    if not libs_str:
+        return list(allowed)
+    wanted = [s.strip().lower() for s in libs_str.split(",") if s.strip()]
+    unknown = [w for w in wanted if w not in allowed]
+    if unknown:
+        sys.exit("[%s] --libs 未知库名: %s（可选：%s）"
+                 % (group, ",".join(unknown), ",".join(allowed)))
+    return [w for w in allowed if w in set(wanted)]
+
+
+
 # CI-PATCH: GitHub Windows runner 默认 cp1252 stdout，中文输出会 UnicodeEncodeError
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -160,6 +176,8 @@ def parse_args():
                     help="启用 DOUBLE_PRECISION（位置用 double，支持更大世界）")
     ap.add_argument("--cross-platform-deterministic", action="store_true",
                     help="启用 CROSS_PLATFORM_DETERMINISTIC（跨平台确定性）")
+    ap.add_argument("--libs", default=None,
+                    help="逗号分隔的库清单（按序）：jolt（默认=全量编译）")
     return ap.parse_args()
 
 
@@ -836,6 +854,10 @@ def package(platform, mode, arch, libtype, toolchain, dist_dir, args):
 def main():
     global _BATCH_FLAG
     args = parse_args()
+    libs_wanted = parse_libs_arg(args.libs, _ALLOWED_LIBS, "jolt")
+    if "jolt" not in libs_wanted:
+        print("[jolt] --libs 未包含 jolt，整组跳过")
+        return
     set_batch_flag(args.batch)
 
     if args.clean:

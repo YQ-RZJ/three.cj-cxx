@@ -15,6 +15,14 @@ on:
         description: "static,shared（留空=脚本默认全编排）"
         required: false
         default: ""
+      groups:
+        description: "组清单（按序，留空则按全量组顺序）"
+        required: false
+        default: "tracy"
+      libs:
+        description: "库清单（按序，留空=全部库）"
+        required: false
+        default: "tracy"
 
 permissions:
   contents: read
@@ -50,6 +58,8 @@ jobs:
           CMD="python3 .github/scripts/ci_build.py --platform IOS --arch ${{ matrix.arch }}"
           if [ -n "${{ inputs.modes }}" ]; then CMD="$CMD --modes ${{ inputs.modes }}"; fi
           if [ -n "${{ inputs.libtypes }}" ]; then CMD="$CMD --libtypes ${{ inputs.libtypes }}"; fi
+          if [ -n "${{ inputs.groups }}" ]; then CMD="$CMD --groups ${{ inputs.groups }}"; fi
+          if [ -n "${{ inputs.libs }}" ]; then CMD="$CMD --libs ${{ inputs.libs }}"; fi
           eval "$CMD"
 
       - name: Upload dist
