@@ -3,6 +3,10 @@ name: native-libs-windows
 on:
   workflow_dispatch:
     inputs:
+      arches:
+        description: "架构，逗号分隔：x86_64,arm64-v8a（留空=全部）"
+        required: false
+        default: ""
       modes:
         description: "debug/release（留空=脚本默认全编排）"
         required: false
@@ -11,22 +15,37 @@ on:
         description: "static,shared（留空=脚本默认全编排）"
         required: false
         default: ""
+      llvm-mingw-url:
+        description: "llvm-mingw (arm64 交叉) 下载地址，可改版本"
+        required: false
+        default: "https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-windows-x86_64.zip"
 
 permissions:
   contents: read
 
 jobs:
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      arches: ${{ steps.set.outputs.arches }}
+    steps:
+      - id: set
+        run: |
+          if [ -n "${{ inputs.arches }}" ]; then
+            echo "arches=[$(echo "${{ inputs.arches }}" | awk -F',' '{for(i=1;i<=NF;i++){gsub(/ /,"",$i); printf "%s\"%s\"", (i>1?",":""), $i}}')]" >> "$GITHUB_OUTPUT"
+          else
+            echo 'arches=["x86_64","arm64-v8a"]' >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: config
     name: ${{ matrix.arch }}
     runs-on: windows-latest
     timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
-        arch: [x86_64, arm64-v8a]
-    defaults:
-      run:
-        shell: msys2 {0}
+        arch: ${{ fromJSON(needs.config.outputs.arches) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -47,10 +66,11 @@ jobs:
         if: matrix.arch == 'arm64-v8a'
         shell: pwsh
         run: |
-          $url = "https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-windows-x86_64.zip"
+          $url = "${{ inputs.llvm-mingw-url }}"
           Invoke-WebRequest -Uri $url -OutFile llvm-mingw.zip
           Expand-Archive llvm-mingw.zip -DestinationPath C:\
-          "LLVM_MINGW=C:\llvm-mingw-20240619-ucrt-windows-x86_64" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $dir = Get-ChildItem C:\ -Directory -Filter "llvm-mingw-*" | Select-Object -First 1
+          "LLVM_MINGW=$($dir.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Build all libraries
         shell: pwsh

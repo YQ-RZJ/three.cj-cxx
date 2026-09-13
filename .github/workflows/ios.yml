@@ -3,6 +3,10 @@ name: native-libs-ios
 on:
   workflow_dispatch:
     inputs:
+      arches:
+        description: "架构，逗号分隔：arm64-v8a（默认仅 arm64-v8a）"
+        required: false
+        default: "arm64-v8a"
       modes:
         description: "debug/release（留空=脚本默认全编排）"
         required: false
@@ -16,10 +20,26 @@ permissions:
   contents: read
 
 jobs:
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      arches: ${{ steps.set.outputs.arches }}
+    steps:
+      - id: set
+        run: |
+          V="${{ inputs.arches }}"
+          if [ -z "$V" ]; then V="arm64-v8a"; fi
+          echo "arches=[$(echo "$V" | awk -F',' '{for(i=1;i<=NF;i++){gsub(/ /,"",$i); printf "%s\"%s\"", (i>1?",":""), $i}}')]" >> "$GITHUB_OUTPUT"
+
   build:
-    name: arm64
+    needs: config
+    name: ${{ matrix.arch }}
     runs-on: macos-latest
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(needs.config.outputs.arches) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -27,7 +47,7 @@ jobs:
       # 其余库如需 IOS 支持须先在各 build.py 中补 IOS 分支。
       - name: Build (tracy only for now)
         run: |
-          CMD="python3 .github/scripts/ci_build.py --platform IOS --arch arm64-v8a"
+          CMD="python3 .github/scripts/ci_build.py --platform IOS --arch ${{ matrix.arch }}"
           if [ -n "${{ inputs.modes }}" ]; then CMD="$CMD --modes ${{ inputs.modes }}"; fi
           if [ -n "${{ inputs.libtypes }}" ]; then CMD="$CMD --libtypes ${{ inputs.libtypes }}"; fi
           eval "$CMD"
@@ -35,6 +55,6 @@ jobs:
       - name: Upload dist
         uses: actions/upload-artifact@v4
         with:
-          name: native-libs-ios-arm64-v8a
+          name: native-libs-ios-${{ matrix.arch }}
           path: dist/ios/
           retention-days: 30

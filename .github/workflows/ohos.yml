@@ -7,6 +7,10 @@ on:
         description: "OHOS SDK (linux) 下载地址，默认华为云 6.0.0.2-Release"
         required: false
         default: "https://repo.huaweicloud.com/harmonyos/os/6.0.0.2-Release/ohos-sdk-windows_linux-public.tar.gz"
+      arches:
+        description: "架构，逗号分隔：arm64-v8a,x86_64（默认仅 arm64-v8a）"
+        required: false
+        default: "arm64-v8a"
       modes:
         description: "debug/release（留空=脚本默认全编排）"
         required: false
@@ -20,14 +24,26 @@ permissions:
   contents: read
 
 jobs:
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      arches: ${{ steps.set.outputs.arches }}
+    steps:
+      - id: set
+        run: |
+          V="${{ inputs.arches }}"
+          if [ -z "$V" ]; then V="arm64-v8a"; fi
+          echo "arches=[$(echo "$V" | awk -F',' '{for(i=1;i<=NF;i++){gsub(/ /,"",$i); printf "%s\"%s\"", (i>1?",":""), $i}}')]" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: config
     name: ${{ matrix.arch }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
-        arch: [arm64-v8a]          # OHOS 设备以 arm64 为主；x86_64 模拟器可按需加
+        arch: ${{ fromJSON(needs.config.outputs.arches) }}
     steps:
       - uses: actions/checkout@v4
 

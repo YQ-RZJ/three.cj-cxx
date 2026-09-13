@@ -3,6 +3,10 @@ name: native-libs-macos
 on:
   workflow_dispatch:
     inputs:
+      arches:
+        description: "架构，逗号分隔：x86_64,arm64-v8a（留空=全部）"
+        required: false
+        default: ""
       modes:
         description: "debug/release（留空=脚本默认全编排）"
         required: false
@@ -16,14 +20,28 @@ permissions:
   contents: read
 
 jobs:
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      arches: ${{ steps.set.outputs.arches }}
+    steps:
+      - id: set
+        run: |
+          if [ -n "${{ inputs.arches }}" ]; then
+            echo "arches=[$(echo "${{ inputs.arches }}" | awk -F',' '{for(i=1;i<=NF;i++){gsub(/ /,"",$i); printf "%s\"%s\"", (i>1?",":""), $i}}')]" >> "$GITHUB_OUTPUT"
+          else
+            echo 'arches=["x86_64","arm64-v8a"]' >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: config
     name: ${{ matrix.arch }}
     runs-on: macos-14          # arm64 runner；x86_64 用本机 clang -arch 交叉
     timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
-        arch: [x86_64, arm64-v8a]
+        arch: ${{ fromJSON(needs.config.outputs.arches) }}
     steps:
       - uses: actions/checkout@v4
 
