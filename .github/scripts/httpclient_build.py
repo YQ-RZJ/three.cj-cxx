@@ -880,14 +880,16 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
                 env["RC"] = "aarch64-w64-mingw32-windres"
                 # CI-PATCH: llvm-rc 的预处理走 clang，不会自动带 mingw sysroot，
                 # winver.h 等系统头位于 <llvm-mingw>/aarch64-w64-mingw32/include，
-                # 在 RCFLAGS 里显式加 -I（经 to_msys2_path 转换后传给 bash）。
+                # 在 RCFLAGS 里显式加 -I。注意必须用原生 Windows 风格路径
+                # （C:/...）——make 会把值原样传给 windres/clang 这类原生
+                # 程序，它们解析不了 MSYS 的 /c/... 虚拟路径。
                 target_root = os.path.dirname(os.path.normpath(mingw_bin))
                 rc_include = os.path.join(target_root, "aarch64-w64-mingw32", "include")
                 make_overrides = (
                     "RC=aarch64-w64-mingw32-windres"
                     " RCFLAGS=--target=pe-aarch64"
                     " RCFLAGS+=-I%s"
-                ) % to_msys2_path(rc_include)
+                ) % rc_include.replace("\\", "/")
                 config_opts.append("no-asm")
                 print("    [CROSS] arm64-v8a: %s (no-asm)" % env["CC"])
             else:
