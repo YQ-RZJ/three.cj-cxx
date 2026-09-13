@@ -64,11 +64,6 @@ jobs:
           unzip -q android-ndk-${{ inputs.ndk-version }}-linux.zip
           echo "NDK_HOME=$RUNNER_TEMP/android-ndk-${{ inputs.ndk-version }}" >> $GITHUB_ENV
 
-      - name: Install xmake (bgfx toolchain)
-        run: |
-          curl -fsSL https://xmake.io/shget.text | bash
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
       - name: Build all libraries
         run: |
           CMD="python3 .github/scripts/ci_build.py --platform ANDROID --arch ${{ matrix.arch }} --ndk \"$NDK_HOME\""

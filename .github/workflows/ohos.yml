@@ -55,11 +55,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install xmake (bgfx toolchain)
-        run: |
-          curl -fsSL https://xmake.io/shget.text | bash
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
       - name: Cache OHOS SDK
         id: sdk-cache
         uses: actions/cache@v4

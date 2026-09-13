@@ -53,11 +53,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install xmake (bgfx/imgui toolchain)
-        run: |
-          curl -fsSL https://xmake.io/shget.text | bash
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
       - name: Install cross toolchain (arm64)
         if: matrix.arch == 'arm64-v8a'
         run: |

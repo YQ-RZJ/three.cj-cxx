@@ -4,8 +4,8 @@ clean.py — cxx 全库产物清理
 
 删除全量构建产生的中间目录与输出（与 build.py 的产物约定对应）：
 
-    cxx/output/            各组 cmake/xmake 构建产物根（bgfx/imgui/jolt/openal/cjbridge/tracy…）
-    cxx/build/             构建中间产物（httpclient/tlsbridge、sdl、openssl 等）
+    cxx/output/            各组 CMake 构建产物根（imgui/jolt/openal/cjbridge/tracy…）
+    cxx/build/             构建中间产物（bgfx.cmake、httpclient/tlsbridge、sdl、openssl 等）
     cxx/dist/              各组 zip 与日志
     cxx/logs/              build.py 的运行日志
     cxx/libs/              各组拷入的仓颉侧链接库（jolt/cjbridge 组）
@@ -24,8 +24,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))            # cxx/
 
 # 目录名 → 说明
 TARGETS = {
-    "output": "各组 cmake/xmake 构建产物根",
-    "build":  "构建中间产物（httpclient/sdl/openssl 等）",
+    "output": "各组 CMake 构建产物根",
+    "build":  "构建中间产物（bgfx.cmake/httpclient/sdl/openssl 等）",
     "dist":   "各组 zip 与日志",
     "logs":   "build.py 运行日志",
     "libs":   "仓颉侧链接库拷贝（jolt/cjbridge 组）",
