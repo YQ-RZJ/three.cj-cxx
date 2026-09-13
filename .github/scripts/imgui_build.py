@@ -152,8 +152,9 @@ LIB_EXTENSIONS    = (".a", ".lib", ".so", ".dll", ".dylib", ".bc", ".wasm")
 HEADER_EXTENSIONS = (".h", ".hpp")
 
 # 依赖路径（cxx/ 集中管理后的 sibling 目录）：仅使用头文件
-# 目录布局：three.cj/cxx/{sdl,bgfx,imgui,...}/<各自源码与 build.py>
-CXX_ROOT     = os.path.normpath(os.path.join(SCRIPT_DIR, ".."))
+# 目录布局：脚本位于 <cxx根>/.github/scripts/ 下，SCRIPT_DIR（dirname×3）即 cxx 根
+# CI-PATCH: CXX_ROOT 不再上跳一级——GitHub 上 cxx 根即仓库根，多退一级会指向仓库外
+CXX_ROOT     = SCRIPT_DIR
 # CI-PATCH: 目录扁平化后，SDL/bgfx 家族直接位于 cxx 根（原 sdl/SDL、bgfx/bgfx 嵌套已移平）
 SDL_DIR  = os.path.join(CXX_ROOT, "SDL")
 BGFX_DIR = os.path.join(CXX_ROOT, "bgfx")
