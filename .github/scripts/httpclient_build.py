@@ -445,11 +445,17 @@ def resolve_msys2(args):
 
 def resolve_mingw(args):
     """探测 MinGW-w64 工具链路径。"""
+    # CI-PATCH: 候选含 GitHub runner 的 msys2 布局（C:\msys64\mingw64）
+    # 与 MINGW_PREFIX 环境变量（msys2/setup-msys2 action 会注入）
     candidates = [
         args.mingw,
+        os.environ.get("MINGW_PREFIX"),
         r"D:\Venv\C_Cpp\llvm-mingw",          # 通用，同时支持 x86_64 + arm64-v8a
         r"D:\Venv\C_Cpp\mingw-w64\mingw64_15.2.0",
         r"D:\Venv\C_Cpp\mingw-w64\mingw64",
+        r"C:\msys64\mingw64",                 # GitHub runner msys2 工具链
+        r"C:\msys2\mingw64",
+        r"C:\msys64\clang64",                 # msys2 clang 工具链（clang.exe 兜底）
     ]
     for c in candidates:
         if c:

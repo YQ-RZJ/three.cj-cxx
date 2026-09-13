@@ -69,9 +69,10 @@ LOG_DIR      = os.path.join(DIST_DIR, "logs")
 LIBS_DIR     = os.path.join(SCRIPT_DIR, "libs")            # 仓颉侧链接用的库输出目录
 
 # 三个子项目的 CMakeLists.txt 所在目录
-FFI_SRC_DIR      = os.path.join(SCRIPT_DIR, "requireCJLib", "requireCJLib")
+# CI-PATCH: 目录扁平化后，requireCJLib/dlbridge 直接位于 cxx 根（原嵌套布局已移平）
+FFI_SRC_DIR      = os.path.join(SCRIPT_DIR, "requireCJLib")
 NAPI_SRC_DIR     = os.path.join(SCRIPT_DIR, "requireCJLib-ark")
-DLBRIDGE_SRC_DIR = os.path.join(SCRIPT_DIR, "dlbridge", "cxx")
+DLBRIDGE_SRC_DIR = os.path.join(SCRIPT_DIR, "dlbridge")
 
 ALL_PLATFORMS = ["WINDOWS", "LINUX", "ANDROID", "OPHM", "IOS", "OSX"]
 ALL_MODES     = ["debug", "release"]

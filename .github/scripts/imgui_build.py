@@ -154,10 +154,11 @@ HEADER_EXTENSIONS = (".h", ".hpp")
 # 依赖路径（cxx/ 集中管理后的 sibling 目录）：仅使用头文件
 # 目录布局：three.cj/cxx/{sdl,bgfx,imgui,...}/<各自源码与 build.py>
 CXX_ROOT     = os.path.normpath(os.path.join(SCRIPT_DIR, ".."))
-SDL_DIR  = os.path.join(CXX_ROOT, "sdl", "SDL")
-BGFX_DIR = os.path.join(CXX_ROOT, "bgfx", "bgfx")
-BX_DIR   = os.path.join(CXX_ROOT, "bgfx", "bx")
-BIMG_DIR = os.path.join(CXX_ROOT, "bgfx", "bimg")
+# CI-PATCH: 目录扁平化后，SDL/bgfx 家族直接位于 cxx 根（原 sdl/SDL、bgfx/bgfx 嵌套已移平）
+SDL_DIR  = os.path.join(CXX_ROOT, "SDL")
+BGFX_DIR = os.path.join(CXX_ROOT, "bgfx")
+BX_DIR   = os.path.join(CXX_ROOT, "bx")
+BIMG_DIR = os.path.join(CXX_ROOT, "bimg")
 
 # cimgui / 后端源文件（相对 SCRIPT_DIR）
 IMGUI_SOURCES = [
