@@ -23,6 +23,7 @@ ci_build.py — GitHub Actions 统一驱动脚本
 """
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 
@@ -38,12 +39,14 @@ CXX_ROOT = os.path.dirname(os.path.dirname(HERE))          # cxx/
 DIST_ROOT = os.path.join(CXX_ROOT, "dist")
 
 # 平台 → 参与编译的组（与各 build.py 的 ALL_PLATFORMS 交集）
+# 顺序即编译顺序：imgui shared 链接期需要 SDL3/bgfx 预编译库，
+# 必须排在 bgfx / sdl 之后（否则 shared 组合因缺 --deps-lib 被跳过）
 PLATFORM_GROUPS = {
-    "LINUX":   ["bgfx", "httpclient", "imgui", "jolt", "luajit", "openal", "sdl", "tracy", "cjbridge"],
-    "WINDOWS": ["bgfx", "httpclient", "imgui", "jolt", "luajit", "openal", "sdl", "tracy", "cjbridge"],
-    "OSX":     ["bgfx", "httpclient", "imgui", "jolt", "luajit", "openal", "sdl", "tracy", "cjbridge"],
-    "ANDROID": ["bgfx", "httpclient", "imgui", "jolt", "luajit", "openal", "sdl", "tracy", "cjbridge"],
-    "OPHM":    ["bgfx", "httpclient", "imgui", "jolt", "luajit", "openal", "sdl", "tracy", "cjbridge"],
+    "LINUX":   ["bgfx", "httpclient", "jolt", "luajit", "openal", "sdl", "imgui", "tracy", "cjbridge"],
+    "WINDOWS": ["bgfx", "httpclient", "jolt", "luajit", "openal", "sdl", "imgui", "tracy", "cjbridge"],
+    "OSX":     ["bgfx", "httpclient", "jolt", "luajit", "openal", "sdl", "imgui", "tracy", "cjbridge"],
+    "ANDROID": ["bgfx", "httpclient", "jolt", "luajit", "openal", "sdl", "imgui", "tracy", "cjbridge"],
+    "OPHM":    ["bgfx", "httpclient", "jolt", "luajit", "openal", "sdl", "imgui", "tracy", "cjbridge"],
     "IOS":     ["tracy"],
 }
 
@@ -80,6 +83,48 @@ def script_allowed_libs(script: str) -> list:
             return []
         inner = m.group(1)[1:-1]    # 去掉外层方括号后再按逗号切分（否则首尾残留引号）
         return [s.strip().strip("'\"") for s in inner.split(",") if s.strip()]
+
+
+def script_arches(script: str) -> list:
+    """CI-PATCH: 扫描组脚本的 ALL_ARCHES 常量，得到其支持的架构名清单。
+    各组脚本架构命名不统一（bgfx/jolt 用 arm64-v8a，sdl/tracy 用 arm64），
+    ci_build 需按脚本适配转发。"""
+    import re
+    with open(script, encoding="utf-8") as f:
+        m = re.search(r"ALL_ARCHES\s*=\s*\[([^\]]*)\]", f.read())
+        if not m:
+            return []
+        return [s.strip().strip("'\"") for s in m.group(1).split(",") if s.strip()]
+
+
+def arch_for_script(script: str, arch: str) -> str:
+    """把 ci_build 的统一架构名映射为组脚本认识的架构名。
+    例如统一名 arm64-v8a 在只认 arm64 的脚本（sdl/tracy）下映射为 arm64。"""
+    sarches = script_arches(script)
+    if not sarches or arch in sarches:
+        return arch
+    alt = {"arm64-v8a": "arm64", "arm64": "arm64-v8a"}.get(arch)
+    return alt if alt and alt in sarches else arch
+
+
+def stage_imgui_deps(cxx_root: str, arch: str) -> str:
+    """收集本轮已编出的 SDL3/bgfx 等库文件到暂存目录，供 imgui shared
+    构建作为 --deps-lib 使用（imgui 排在 sdl/bgfx 之后编译）。"""
+    import glob
+    stage = os.path.join(cxx_root, "output", "ci_deps", arch)
+    os.makedirs(stage, exist_ok=True)
+    n = 0
+    for src_root in ("output", "build"):
+        base = os.path.join(cxx_root, src_root)
+        if not os.path.isdir(base):
+            continue
+        for pattern in ("*.a", "*.lib", "*.so", "*.dylib"):
+            for f in glob.glob(os.path.join(base, "**", pattern), recursive=True):
+                dst = os.path.join(stage, os.path.basename(f))
+                if not os.path.isfile(dst):
+                    shutil.copy2(f, dst)
+                    n += 1
+    return stage if n else ""
 
 
 def main():
@@ -146,15 +191,20 @@ def main():
 
     for group in groups:
         script = os.path.join(HERE, f"{group}_build.py")
+        # CI-PATCH: 各组脚本架构命名不统一（bgfx/jolt 用 arm64-v8a，
+        # sdl/tracy 用 arm64），按脚本适配转发
+        script_arch = arch_for_script(script, args.arch)
         cmd = [sys.executable, script,
                "--platforms", plat,
-               "--arches", args.arch,
+               "--arches", script_arch,
                "--clean"]
         if args.ndk:
             cmd += ["--ndk", os.path.abspath(args.ndk)]
         if args.ohos_sdk:
             cmd += ["--ohos-sdk", os.path.abspath(args.ohos_sdk)]
-        if args.mingw:
+        # CI-PATCH: --mingw 仅转发给支持该参数的组脚本（sdl_build.py 等不认识
+        # --mingw，无条件转发会导致 argparse 报错、整组失败中断）
+        if args.mingw and script_supports(script, "--mingw"):
             cmd += ["--mingw", os.path.abspath(args.mingw)]
         if args.modes and script_supports(script, "--modes"):
             cmd += ["--modes", args.modes]
@@ -168,6 +218,14 @@ def main():
                 print(f"[ci] skip {group}（--libs 未包含本组库）", flush=True)
                 continue
             cmd += ["--libs", ",".join(subset)]
+        # CI-PATCH: imgui shared 构建需要 SDL3/bgfx 预编译库目录；
+        # 此时 bgfx/sdl 已编译完成，收集其库产物作 --deps-lib 传入
+        if group == "imgui" and script_supports(script, "--deps-lib"):
+            stage = stage_imgui_deps(CXX_ROOT, args.arch)
+            if stage:
+                cmd += ["--deps-lib", stage]
+            else:
+                print("[ci] WARN imgui: 未收集到依赖库产物，shared 组合将被跳过", flush=True)
         run(cmd, env)
 
     # ---- 归包：dist/<os>/<arch>/{static,shared} ----
