@@ -333,11 +333,16 @@ def probe_mingw(arch, mingw_dir):
     # 1) --mingw 指定目录
     if mingw_dir and os.path.isdir(mingw_dir):
         bin_dir = os.path.join(mingw_dir, "bin")
-        cand = os.path.join(bin_dir, gcc_name)
-        if os.path.exists(cand):
-            return (cand,
-                    os.path.join(bin_dir, gxx_name),
-                    cand)
+        cc = os.path.join(bin_dir, gcc_name)
+        # CI-PATCH: llvm-mingw 只带 triple-clang 包装（无 -gcc 别名），
+        # 探测失败会让 xmake 静默回退宿主 x86_64 工具链，产出错误架构
+        if not os.path.exists(cc):
+            cc = os.path.join(bin_dir, pre + "clang" + exe_suffix())
+        if os.path.exists(cc):
+            cxx = os.path.join(bin_dir, gxx_name)
+            if not os.path.exists(cxx):
+                cxx = os.path.join(bin_dir, pre + "clang++" + exe_suffix())
+            return (cc, cxx, cc)
     # 2) PATH 中查找
     gcc = find_tool(gcc_name)
     gxx = find_tool(gxx_name)

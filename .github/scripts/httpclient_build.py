@@ -430,17 +430,28 @@ def collect_outputs(ssl_dir, platform, arch, libtype):
 # ---------------------------------------------------------------------------
 def resolve_msys2(args):
     """探测 MSYS2 安装路径（WINDOWS 平台需要）。"""
+    # CI-PATCH: GitHub runner 预装的 C:\msys64 是精简实例（无 perl/make），
+    # setup-msys2 安装的完整实例在 hostedtoolcache 下——优先选带 perl 的实例。
+    import glob as _glob
     candidates = [
         args.msys2,
+        os.environ.get("MSYS2_ROOT"),
         r"D:\Venv\msys64",
         r"d:\workspace\Projects\three.cj\msys2_temp\msys64",
         r"C:\msys64",
         r"C:\msys2",
     ]
+    candidates += sorted(
+        _glob.glob(r"C:\hostedtoolcache\windows\msys2-installer\*\x64\msys64"),
+        reverse=True)
+    fallback = None
     for c in candidates:
         if c and os.path.isfile(os.path.join(c, "usr", "bin", "bash.exe")):
-            return os.path.normpath(c)
-    return None
+            c = os.path.normpath(c)
+            if os.path.isfile(os.path.join(c, "usr", "bin", "perl.exe")):
+                return c          # 完整实例（openssl Configure 需要 perl）
+            fallback = fallback or c
+    return fallback
 
 
 def resolve_mingw(args):
