@@ -818,6 +818,23 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
         msys2_bash = os.path.join(msys2, "usr", "bin", "bash.exe")
         mingw_bin = os.path.join(mingw, "bin")
 
+        # CI-PATCH: WINDOWS arm64-v8a 交叉编译——OpenSSL 的 mingw64 目标默认
+        # 按 x86_64 生成汇编与探测 gcc，交叉时必须：
+        #   1) 注入 llvm-mingw 的 aarch64-w64-mingw32-* 工具链（CC/AR/...）
+        #   2) no-asm（x86_64 perlasm 产物在 arm64 上不可用）
+        if arch == "arm64-v8a":
+            cross_cc = os.path.join(mingw_bin, "aarch64-w64-mingw32-clang.exe")
+            if os.path.isfile(cross_cc):
+                env["CC"] = "aarch64-w64-mingw32-clang"
+                env["CXX"] = "aarch64-w64-mingw32-clang++"
+                env["AR"] = "aarch64-w64-mingw32-ar"
+                env["RANLIB"] = "aarch64-w64-mingw32-ranlib"
+                env["RC"] = "aarch64-w64-mingw32-windres"
+                config_opts.append("no-asm")
+                print("    [CROSS] arm64-v8a: %s (no-asm)" % env["CC"])
+            else:
+                print("    [WARN] arm64-v8a: mingw 中无 aarch64-w64-mingw32-clang，回退宿主工具链")
+
         # MSYS2 路径转换
         ssl_dir_msys = to_msys2_path(ssl_dir)
         mingw_bin_msys = to_msys2_path(mingw_bin)
@@ -825,7 +842,7 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
         # 构建 shell 命令
         config_str = " ".join(config_opts)
         shell_script = (
-            'export PATH="%s:$PATH"\n'
+            'export PATH="%s:/usr/bin:$PATH"\n'
             'cd "%s" || exit 1\n'
             'echo "=== Configuring OpenSSL === "\n'
             'perl ./Configure %s 2>&1\n'

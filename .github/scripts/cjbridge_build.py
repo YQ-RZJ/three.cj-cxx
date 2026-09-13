@@ -662,6 +662,19 @@ def build_one(platform, mode, arch, libtype, toolchain, host, args, ctx, log_pat
     os.makedirs(base_build, exist_ok=True)
 
     cfg, is_multi = cmake_config(platform, mode, arch, libtype, toolchain, host, ctx, args)
+
+    # CI-PATCH: 三个子项目的 CMakeLists 各自只消费自己的库类型选项，
+    # 无差别全传会让 CMake 报 unused-cli 警告——按子项目剔除不相关选项。
+    # 注意只剔除库类型选项本身，其它 -D（如 CMAKE_BUILD_TYPE）必须保留。
+    _LIBTYPE_OPTS = ("REQUIRECJ_FFI_SHARED", "REQUIRECJ_NAPI_SHARED", "DLBRIDGE_SHARED")
+
+    def cfg_for(*keep):
+        drop = tuple("-D" + p + "=" for p in _LIBTYPE_OPTS if p not in keep)
+        return [o for o in cfg if not o.startswith(drop)]
+
+    cfg_ffi  = cfg_for("REQUIRECJ_FFI_SHARED")
+    cfg_napi = cfg_for("REQUIRECJ_NAPI_SHARED")
+    cfg_dlb  = cfg_for("DLBRIDGE_SHARED")
     env = os.environ.copy()
     if toolchain == "mingw" and ctx.get("mingw"):
         mbin = os.path.join(ctx["mingw"], "bin")
@@ -673,7 +686,7 @@ def build_one(platform, mode, arch, libtype, toolchain, host, args, ctx, log_pat
     ffi_build = os.path.join(base_build, "ffi")
     ffi_stage = os.path.join(base_stage, "ffi")
     if not build_subproject(FFI_SRC_DIR, ffi_build, ffi_stage,
-                            cfg, is_multi, mode, env, log_path, args.jobs):
+                            cfg_ffi, is_multi, mode, env, log_path, args.jobs):
         return False
 
     # 2) 编译 requireCJLib-ark (NAPI 变体)
@@ -683,7 +696,7 @@ def build_one(platform, mode, arch, libtype, toolchain, host, args, ctx, log_pat
         napi_build = os.path.join(base_build, "napi")
         napi_stage = os.path.join(base_stage, "napi")
         if not build_subproject(NAPI_SRC_DIR, napi_build, napi_stage,
-                                cfg, is_multi, mode, env, log_path, args.jobs):
+                                cfg_napi, is_multi, mode, env, log_path, args.jobs):
             return False
 
     # 3) 编译 dlbridge (动态库加载桥)
@@ -692,7 +705,7 @@ def build_one(platform, mode, arch, libtype, toolchain, host, args, ctx, log_pat
         dlb_build = os.path.join(base_build, "dlbridge")
         dlb_stage = os.path.join(base_stage, "dlbridge")
         if not build_subproject(DLBRIDGE_SRC_DIR, dlb_build, dlb_stage,
-                                cfg, is_multi, mode, env, log_path, args.jobs):
+                                cfg_dlb, is_multi, mode, env, log_path, args.jobs):
             return False
 
     return True

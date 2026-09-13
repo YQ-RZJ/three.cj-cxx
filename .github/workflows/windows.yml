@@ -59,6 +59,7 @@ jobs:
             mingw-w64-x86_64-cmake
             mingw-w64-x86_64-ninja
             make
+            perl
             python
 
       - name: Install xmake (bgfx toolchain)
