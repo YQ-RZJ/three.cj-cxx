@@ -864,9 +864,11 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
         # 按 x86_64 生成汇编与探测 gcc，交叉时必须：
         #   1) 注入 llvm-mingw 的 aarch64-w64-mingw32-* 工具链（CC/AR/...）
         #   2) no-asm（x86_64 perlasm 产物在 arm64 上不可用）
-        #   3) make 命令行强制 RC=交叉 windres——OpenSSL 的 Makefile 内写死
-        #      RC=windres（宿主 x64），env 变量覆盖不了，导致链接 DLL 时
-        #      "machine type x64 conflicts with arm64"
+        #   3) make 命令行强制 RC + RCFLAGS——OpenSSL Makefile 写死
+        #      RC=windres 且 RCFLAGS 追加 shared_rcflag=--target=pe-x86-64
+        #      （Configurations/10-main.conf），仅覆盖 RC 不够：res.obj 仍被
+        #      编成 x64，链接 DLL 时 "machine type x64 conflicts with arm64"。
+        #      命令行 RCFLAGS 整体替换后指定 pe-aarch64。
         make_overrides = ""
         if arch == "arm64-v8a":
             cross_cc = os.path.join(mingw_bin, "aarch64-w64-mingw32-clang.exe")
@@ -876,7 +878,8 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
                 env["AR"] = "aarch64-w64-mingw32-ar"
                 env["RANLIB"] = "aarch64-w64-mingw32-ranlib"
                 env["RC"] = "aarch64-w64-mingw32-windres"
-                make_overrides = "RC=aarch64-w64-mingw32-windres"
+                make_overrides = ("RC=aarch64-w64-mingw32-windres"
+                                  " RCFLAGS=--target=pe-aarch64")
                 config_opts.append("no-asm")
                 print("    [CROSS] arm64-v8a: %s (no-asm)" % env["CC"])
             else:
