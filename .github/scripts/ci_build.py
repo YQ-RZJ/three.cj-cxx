@@ -26,6 +26,13 @@ import os
 import subprocess
 import sys
 
+# CI-PATCH: GitHub Windows runner 默认 cp1252 stdout，中文输出会 UnicodeEncodeError
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except AttributeError:
+    pass
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 CXX_ROOT = os.path.dirname(os.path.dirname(HERE))          # cxx/
 DIST_ROOT = os.path.join(CXX_ROOT, "dist")
@@ -57,6 +64,13 @@ def run(cmd, env):
         sys.exit(f"[ci] FAILED: {' '.join(cmd)}")
 
 
+def script_supports(script: str, opt: str) -> bool:
+    """扫描组脚本的 add_argument，判断其是否支持某 CLI 选项（CI-PATCH：tracy 无 --libtype 等）"""
+    import re
+    with open(script, encoding="utf-8") as f:
+        return opt in re.findall(r"add_argument\(\s*\"(--[\w-]+)\"", f.read())
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--platform", required=True,
@@ -74,6 +88,9 @@ def main():
 
     env = os.environ.copy()
     env["CMAKE_BUILD_PARALLEL_LEVEL"] = str(args.jobs)
+    # CI-PATCH: Windows runner 默认 cp1252，子进程中文输出统一强制 UTF-8
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     if args.ndk:
         env["ANDROID_NDK_HOME"] = os.path.abspath(args.ndk)
     if args.ohos_sdk:
@@ -97,9 +114,9 @@ def main():
             cmd += ["--ohos-sdk", os.path.abspath(args.ohos_sdk)]
         if args.mingw:
             cmd += ["--mingw", os.path.abspath(args.mingw)]
-        if args.modes:
+        if args.modes and script_supports(script, "--modes"):
             cmd += ["--modes", args.modes]
-        if args.libtypes:
+        if args.libtypes and script_supports(script, "--libtype"):
             cmd += ["--libtype", args.libtypes]
         run(cmd, env)
 

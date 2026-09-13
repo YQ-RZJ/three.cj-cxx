@@ -18,7 +18,7 @@ on:
       llvm-mingw-url:
         description: "llvm-mingw (arm64 交叉) 下载地址，可改版本"
         required: false
-        default: "https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-windows-x86_64.zip"
+        default: "https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-x86_64.zip"
 
 permissions:
   contents: read
@@ -61,6 +61,12 @@ jobs:
             make
             python
 
+      - name: Install xmake (bgfx toolchain)
+        shell: pwsh
+        run: |
+          Invoke-Expression (Invoke-WebRequest 'https://xmake.io/psget.text' -UseBasicParsing).Content
+          "C:\Program Files\xmake" | Out-File -FilePath $env:GITHUB_PATH -Append
+
       # arm64-v8a 走 llvm-mingw（aarch64 三元组，build.py --mingw 指定）
       - name: Install llvm-mingw (arm64)
         if: matrix.arch == 'arm64-v8a'
@@ -75,8 +81,9 @@ jobs:
       - name: Build all libraries
         shell: pwsh
         run: |
-          $cmd = "python .github/scripts/ci_build.py --platform WINDOWS --arch ${{ matrix.arch }}"
-          if ("${{ matrix.arch }}" -eq "arm64-v8a") { $cmd += " --mingw `$env:LLVM_MINGW" }
+          $mingwArg = ""
+          if ("${{ matrix.arch }}" -eq "arm64-v8a") { $mingwArg = " --mingw `"$env:LLVM_MINGW`"" }
+          $cmd = "python .github/scripts/ci_build.py --platform WINDOWS --arch ${{ matrix.arch }}$mingwArg"
           if ("${{ inputs.modes }}" -ne "") { $cmd += " --modes ${{ inputs.modes }}" }
           if ("${{ inputs.libtypes }}" -ne "") { $cmd += " --libtypes ${{ inputs.libtypes }}" }
           bash -lc "$cmd"
