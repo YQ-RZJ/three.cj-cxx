@@ -7,6 +7,14 @@ on:
         description: "OHOS SDK (linux) 下载地址，默认华为云 6.0.0.2-Release"
         required: false
         default: "https://repo.huaweicloud.com/harmonyos/os/6.0.0.2-Release/ohos-sdk-windows_linux-public.tar.gz"
+      modes:
+        description: "debug/release（留空=脚本默认全编排）"
+        required: false
+        default: ""
+      libtypes:
+        description: "static,shared（留空=脚本默认全编排）"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -47,9 +55,10 @@ jobs:
 
       - name: Build all libraries (incl. SDL3 shared for static packaging)
         run: |
-          python3 .github/scripts/ci_build.py \
-            --platform OPHM --arch ${{ matrix.arch }} \
-            --ohos-sdk "$HOME/ohos-sdk-native"
+          CMD="python3 .github/scripts/ci_build.py --platform OPHM --arch ${{ matrix.arch }} --ohos-sdk \"$HOME/ohos-sdk-native\""
+          if [ -n "${{ inputs.modes }}" ]; then CMD="$CMD --modes ${{ inputs.modes }}"; fi
+          if [ -n "${{ inputs.libtypes }}" ]; then CMD="$CMD --libtypes ${{ inputs.libtypes }}"; fi
+          eval "$CMD"
 
       # OHOS 特例：static 目录内需带 <arch>/libSDL3.so（对齐 three/test/ohos/base/entry/libs）
       - name: Attach libSDL3.so into static package

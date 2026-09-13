@@ -35,7 +35,10 @@ jobs:
 
       - name: Build all libraries
         run: |
-          python .github/scripts/ci_build.py --platform LINUX --arch ${{ matrix.arch }}
+          CMD="python .github/scripts/ci_build.py --platform LINUX --arch ${{ matrix.arch }}"
+          if [ -n "${{ inputs.modes }}" ]; then CMD="$CMD --modes ${{ inputs.modes }}"; fi
+          if [ -n "${{ inputs.libtypes }}" ]; then CMD="$CMD --libtypes ${{ inputs.libtypes }}"; fi
+          eval "$CMD"
 
       - name: Upload dist
         uses: actions/upload-artifact@v4

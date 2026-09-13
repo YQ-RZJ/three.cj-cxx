@@ -7,6 +7,10 @@ on:
         description: "debug/release（留空=脚本默认全编排）"
         required: false
         default: ""
+      libtypes:
+        description: "static,shared（留空=脚本默认全编排）"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -43,20 +47,19 @@ jobs:
         if: matrix.arch == 'arm64-v8a'
         shell: pwsh
         run: |
-          $url = "https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-ubuntu-20.04-x86_64.tar.xz"
-          # Windows runner 用 Windows 版 llvm-mingw
           $url = "https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-windows-x86_64.zip"
           Invoke-WebRequest -Uri $url -OutFile llvm-mingw.zip
           Expand-Archive llvm-mingw.zip -DestinationPath C:\
           "LLVM_MINGW=C:\llvm-mingw-20240619-ucrt-windows-x86_64" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Build all libraries
+        shell: pwsh
         run: |
-          if [ "${{ matrix.arch }}" = "arm64-v8a" ]; then
-            python .github/scripts/ci_build.py --platform WINDOWS --arch arm64-v8a --mingw "$LLVM_MINGW"
-          else
-            python .github/scripts/ci_build.py --platform WINDOWS --arch x86_64
-          fi
+          $cmd = "python .github/scripts/ci_build.py --platform WINDOWS --arch ${{ matrix.arch }}"
+          if ("${{ matrix.arch }}" -eq "arm64-v8a") { $cmd += " --mingw `$env:LLVM_MINGW" }
+          if ("${{ inputs.modes }}" -ne "") { $cmd += " --modes ${{ inputs.modes }}" }
+          if ("${{ inputs.libtypes }}" -ne "") { $cmd += " --libtypes ${{ inputs.libtypes }}" }
+          bash -lc "$cmd"
 
       - name: Upload dist
         uses: actions/upload-artifact@v4

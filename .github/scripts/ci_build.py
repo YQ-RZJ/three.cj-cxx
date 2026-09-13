@@ -65,6 +65,10 @@ def main():
     ap.add_argument("--ndk", default=None, help="Android NDK 根目录")
     ap.add_argument("--ohos-sdk", default=None, help="OHOS SDK native 目录")
     ap.add_argument("--mingw", default=None, help="mingw-w64 / llvm-mingw 根目录（Windows 可选）")
+    ap.add_argument("--modes", default=None,
+                    help="逗号分隔：debug,release（缺省=各组脚本默认全编排）")
+    ap.add_argument("--libtypes", default=None,
+                    help="逗号分隔：static,shared（缺省=各组脚本默认全编排）")
     ap.add_argument("--jobs", type=int, default=4)
     args = ap.parse_args()
 
@@ -93,6 +97,10 @@ def main():
             cmd += ["--ohos-sdk", os.path.abspath(args.ohos_sdk)]
         if args.mingw:
             cmd += ["--mingw", os.path.abspath(args.mingw)]
+        if args.modes:
+            cmd += ["--modes", args.modes]
+        if args.libtypes:
+            cmd += ["--libtype", args.libtypes]
         run(cmd, env)
 
     # ---- 归包：dist/<os>/<arch>/{static,shared} ----
