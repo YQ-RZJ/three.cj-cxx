@@ -444,6 +444,11 @@ def resolve_msys2(args):
     candidates += sorted(
         _glob.glob(r"C:\hostedtoolcache\windows\msys2-installer\*\x64\msys64"),
         reverse=True)
+    # CI-PATCH: setup-msys2 默认把实例装在 %RUNNER_TEMP%\msys64（location 未生效时的兜底）
+    _rt = os.environ.get("RUNNER_TEMP")
+    if _rt:
+        candidates.append(os.path.join(_rt, "msys64"))
+    candidates += sorted(_glob.glob(r"D:\a\_temp\msys*"), reverse=True)
     fallback = None
     for c in candidates:
         if c:
