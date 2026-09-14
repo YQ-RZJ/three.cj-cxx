@@ -55,11 +55,11 @@
 #define BX_PLATFORM_LINUX      0
 #define BX_PLATFORM_NX         0
 // OHOS / OpenHarmony (HarmonyOS NDK, --target=*-linux-ohos). Unlike upstream,
-// treated as a first-class platform: set via compiler flag -DBX_PLATFORM_OPHM=1.
+// treated as a first-class platform: set via compiler flag -DBX_PLATFORM_OHOS=1.
 // It implies BX_PLATFORM_LINUX (musl + Linux-compatible syscalls).
-#ifndef BX_PLATFORM_OPHM
-#	define BX_PLATFORM_OPHM       0
-#endif // BX_PLATFORM_OPHM
+#ifndef BX_PLATFORM_OHOS
+#	define BX_PLATFORM_OHOS       0
+#endif // BX_PLATFORM_OHOS
 #define BX_PLATFORM_OSX        0
 #define BX_PLATFORM_PS4        0
 #define BX_PLATFORM_PS5        0
@@ -273,7 +273,7 @@
 	||  BX_PLATFORM_IOS        \
 	||  BX_PLATFORM_LINUX      \
 	||  BX_PLATFORM_NX         \
-	||  BX_PLATFORM_OPHM       \
+	||  BX_PLATFORM_OHOS       \
 	||  BX_PLATFORM_OSX        \
 	||  BX_PLATFORM_PS4        \
 	||  BX_PLATFORM_PS5        \
@@ -291,7 +291,7 @@
 	||  BX_PLATFORM_IOS        \
 	||  BX_PLATFORM_LINUX      \
 	||  BX_PLATFORM_NX         \
-	||  BX_PLATFORM_OPHM       \
+	||  BX_PLATFORM_OHOS       \
 	||  BX_PLATFORM_OSX        \
 	||  BX_PLATFORM_PS4        \
 	||  BX_PLATFORM_PS5        \
@@ -380,7 +380,7 @@
 #	define BX_PLATFORM_NAME "None"
 #elif BX_PLATFORM_NX
 #	define BX_PLATFORM_NAME "NX"
-#elif BX_PLATFORM_OPHM
+#elif BX_PLATFORM_OHOS
 #	define BX_PLATFORM_NAME "OpenHarmony"
 #elif BX_PLATFORM_OSX
 #	define BX_PLATFORM_NAME "macOS"

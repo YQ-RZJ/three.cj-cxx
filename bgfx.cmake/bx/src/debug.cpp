@@ -76,7 +76,7 @@ extern "C" __declspec(dllimport) unsigned int __stdcall SetErrorMode(unsigned in
 #	include <bx/crt0.h>
 #elif BX_PLATFORM_ANDROID
 #	include <android/log.h>
-#elif BX_PLATFORM_OPHM
+#elif BX_PLATFORM_OHOS
 #	include <hilog/log.h>
 #elif  BX_PLATFORM_WINDOWS \
 	|| BX_PLATFORM_WINRT   \
@@ -178,7 +178,7 @@ namespace bx
 #		define BX_ANDROID_LOG_TAG ""
 #	endif // BX_ANDROID_LOG_TAG
 		__android_log_write(ANDROID_LOG_DEBUG, BX_ANDROID_LOG_TAG, _out);
-#elif BX_PLATFORM_OPHM
+#elif BX_PLATFORM_OHOS
 		OH_LOG_Print(LOG_APP, LOG_DEBUG, 0, "bgfx", "%{public}s", _out);
 #elif  BX_PLATFORM_WINDOWS \
 	|| BX_PLATFORM_WINRT   \

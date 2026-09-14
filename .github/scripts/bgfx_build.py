@@ -249,10 +249,20 @@ def resolve_emsdk(args):
 def probe_ohos(sdk, arch):
     """探测 OpenHarmony NDK：<sdk>/llvm/bin/clang[.exe] + <sdk>/sysroot，target 为 *-linux-ohos"""
     exe = exe_suffix()
+    # CI-PATCH: 统一正斜杠——DevEco 本机安装路径含空格（"C:\Program
+    # Files\HuaWei DevEco..."），反斜杠路径写入 CMake cache 时 "C:\Program"
+    # 的 \P 被当转义解析报 Syntax error（本机实测）；正斜杠 Windows 原生
+    # 兼容且对 CI 无空格路径无影响。
+    sdk = sdk.replace("\\", "/")
     bin_dir = os.path.join(sdk, "llvm", "bin")
     cc = os.path.join(bin_dir, "clang" + exe)
     cxx = os.path.join(bin_dir, "clang++" + exe)
     sysroot = os.path.join(sdk, "sysroot")
+    # CI-PATCH2: os.path.join 在 Windows 上用反斜杠拼接（sdk 已是正斜杠
+    # 也会得到混合分隔符 "native\llvm\bin"），必须对最终结果再归一一次
+    cc = cc.replace("\\", "/")
+    cxx = cxx.replace("\\", "/")
+    sysroot = sysroot.replace("\\", "/")
     if not (os.path.isfile(cc) and os.path.isfile(cxx) and os.path.isdir(sysroot)):
         raise RuntimeError(
             "OHOS SDK 结构不完整，需要 <sdk>/llvm/bin/clang 与 <sdk>/sysroot: %s" % sdk)
@@ -386,10 +396,16 @@ def cmake_config(platform, mode, arch, libtype, toolchain, host, ctx):
             raise RuntimeError("OHOS 需要 OHOS SDK 路径")
         cc, cxx, _ld, sysroot, target = probe_ohos(sdk, arch)
         cache["BX_PLATFORM_OHOS"] = "ON"
-        cache["OHOS_SDK"] = sdk
+        cache["OHOS_SDK"] = sdk.replace("\\", "/")
         cache["CMAKE_SYSTEM_NAME"] = "Linux"
         cache["CMAKE_SYSTEM_PROCESSOR"] = "aarch64" if arch == "arm64-v8a" else "x86_64"
-        cross = "--target=%s --sysroot=%s" % (target, sysroot)
+        # CI-PATCH3: sysroot 走 CMAKE_SYSROOT 专用变量——DevEco 本机路径
+        # 含空格，--sysroot 塞在 *_FLAGS 里会在 make 调 clang 时按空格
+        # 分词（本机实测 clang: error: no such file or directory:
+        # 'Files/HuaWei/DevEco'）；CMAKE_SYSROOT 由 CMake 引用传递不分词。
+        # --target 无空格，保留在 flags。
+        cache["CMAKE_SYSROOT"] = sysroot
+        cross = "--target=%s" % target
         # __linux__ 由 ohos target 自动定义；显式补 BX_PLATFORM_LINUX=1 以防万一
         cache["CMAKE_C_FLAGS"] = "-DBX_PLATFORM_LINUX=1 " + cross
         cache["CMAKE_CXX_FLAGS"] = "-DBX_PLATFORM_LINUX=1 " + cross

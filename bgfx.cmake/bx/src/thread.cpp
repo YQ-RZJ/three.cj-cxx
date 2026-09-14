@@ -232,10 +232,10 @@ namespace bx
 #elif BX_CRT_GLIBC
 		pthread_setname_np(ti->m_handle, m_name.getCPtr() );
 #elif BX_PLATFORM_LINUX
-#	if !BX_PLATFORM_OPHM
+#	if !BX_PLATFORM_OHOS
 		// OHOS (musl) sysroot: prctl(PR_SET_NAME) is not usable; old-version customization disables it.
 		prctl(PR_SET_NAME, m_name.getCPtr(), 0, 0, 0);
-#	endif // !BX_PLATFORM_OPHM
+#	endif // !BX_PLATFORM_OHOS
 #elif BX_PLATFORM_WINDOWS
 		typedef HRESULT (WINAPI *SetThreadDescriptionFn)(HANDLE, PCWSTR);
 		SetThreadDescriptionFn setThreadDescription = dlsym<SetThreadDescriptionFn>( (void*)GetModuleHandleA("kernel32.dll"), "SetThreadDescription");

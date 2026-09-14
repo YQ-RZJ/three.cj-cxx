@@ -44,8 +44,8 @@ cmake_dependent_option(
 	BGFX_INSTALL_EXAMPLES "Install examples and their runtimes." OFF "BGFX_INSTALL;BGFX_BUILD_EXAMPLES" OFF
 )
 cmake_dependent_option(BGFX_WITH_WAYLAND "Use Wayland backend." ON "CMAKE_SYSTEM_NAME STREQUAL Linux" OFF)
-option(BX_PLATFORM_OPHM "Target OpenHarmony/HarmonyOS (cross-compiled with the OHOS NDK; implies Linux compatibility)." OFF)
-set(OHOS_SDK "" CACHE PATH "Path to the OHOS NDK (used when BX_PLATFORM_OPHM is ON).")
+option(BX_PLATFORM_OHOS "Target OpenHarmony/HarmonyOS (cross-compiled with the OHOS NDK; implies Linux compatibility)." OFF)
+set(OHOS_SDK "" CACHE PATH "Path to the OHOS NDK (used when BX_PLATFORM_OHOS is ON).")
 
 # Android NDK clang treats -Winvalid-constexpr (bx/bimg reference SIMD paths)
 # as an error; relax it globally for all targets.

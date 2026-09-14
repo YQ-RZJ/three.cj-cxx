@@ -324,13 +324,13 @@ WL_EGL_IMPORT
 				;
 
 			const uint32_t msaa = (_swapChain.flags & BGFX_SWAP_CHAIN_MSAA_MASK)>>BGFX_SWAP_CHAIN_MSAA_SHIFT;
-#if BX_PLATFORM_OPHM
+#if BX_PLATFORM_OHOS
 			// OHOS: handle MSAA through the context (matches old-version customization).
 			uint32_t msaaSamples = msaa == 0 ? 0 : 1<<msaa;
 			m_msaaContext = true;
 #else
 			uint32_t msaaSamples = 0 == msaa ? 0 : 1<<msaa;
-#endif // BX_PLATFORM_OPHM
+#endif // BX_PLATFORM_OHOS
 
 			const bool headless = EGLNativeWindowType(0) == nwh;
 
@@ -460,12 +460,12 @@ WL_EGL_IMPORT
 				attrs[numAttrs++] = colorBlockInfo.aBits;
 
 				attrs[numAttrs++] = EGL_DEPTH_SIZE;
-#	if BX_PLATFORM_OPHM
+#	if BX_PLATFORM_OHOS
 				// OHOS GLES drivers are more reliable with a 16-bit depth buffer (old-version customization).
 				attrs[numAttrs++] = 16;
 #	else
 				attrs[numAttrs++] = depthStecilBlockInfo.depthBits;
-#	endif // BX_PLATFORM_OPHM
+#	endif // BX_PLATFORM_OHOS
 
 				attrs[numAttrs++] = EGL_STENCIL_SIZE;
 				attrs[numAttrs++] = depthStecilBlockInfo.stencilBits;
@@ -500,11 +500,11 @@ WL_EGL_IMPORT
 
 			BGFX_FATAL(0 != numConfigs, Fatal::UnableToInitialize, "eglChooseConfig");
 
-#	if BX_PLATFORM_OPHM
+#	if BX_PLATFORM_OHOS
 			m_msaaContext = true;
 #	else
 			m_msaaContext = 1 < msaaSamples;
-#	endif // BX_PLATFORM_OPHM
+#	endif // BX_PLATFORM_OHOS
 
 #	if BX_PLATFORM_ANDROID
 			EGLint format;
@@ -516,7 +516,7 @@ WL_EGL_IMPORT
 				, format
 				);
 
-#	elif BX_PLATFORM_OPHM
+#	elif BX_PLATFORM_OHOS
 			// OHOS: no ANativeWindow API; just query the visual format for completeness.
 			EGLint format;
 			eglGetConfigAttrib(m_display, m_config, EGL_NATIVE_VISUAL_ID, &format);
@@ -861,7 +861,7 @@ WL_EGL_IMPORT
 				, format
 				);
 		}
-#	elif BX_PLATFORM_OPHM
+#	elif BX_PLATFORM_OHOS
 		// OHOS: recreate the surface on resize (old-version customization; no ANativeWindow API).
 		if (m_ownsContext
 		&&  NULL != m_display)
@@ -997,7 +997,7 @@ WL_EGL_IMPORT
 	{
 		BX_TRACE("Import:");
 
-#	if (BX_PLATFORM_WINDOWS || BX_PLATFORM_LINUX) && !BX_PLATFORM_OPHM
+#	if (BX_PLATFORM_WINDOWS || BX_PLATFORM_LINUX) && !BX_PLATFORM_OHOS
 #		if BX_PLATFORM_WINDOWS
 #			if BGFX_CONFIG_RENDERER_OPENGL
 #				define LIBRARY_NAME "libGL.dll"
