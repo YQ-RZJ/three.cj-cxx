@@ -518,6 +518,12 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
             raise RuntimeError("无法获取 %s SDK 路径（xcrun --sdk %s --show-sdk-path）" % (sdk, sdk))
         base = _xcode_tool("clang") or "clang"
         target = "arm64-apple-ios" if arch == "arm64-v8a" else "x86_64-apple-ios-simulator"
+        # CI-PATCH: HOST_CC 同样补 macosx -isysroot（与 OSX 分支同因）——
+        # IOS 的 host 工具（minilua/buildvm）运行在 macOS 上，CI 裸 clang
+        # 不继承 SDKROOT 时 HOSTCC 阶段找不到 TargetConditionals.h 等。
+        host_isysroot = _xcode_sdk("macosx")
+        if host_isysroot:
+            host_cc = host_cc + " -isysroot " + host_isysroot
         # 注意：sysroot 必须在 Python 侧解析后拼进 TARGET_CC，
         # 不能写成 $(xcrun ...) —— 那会被 make 当作变量引用展开为空。
         target_cc = base + " -isysroot " + sdk_path + " --target=" + target
@@ -533,6 +539,10 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
     elif platform == "LINUX" and arch == "arm64-v8a":
         # CI-PATCH: 同上 —— 覆盖 TARGET_DYNCC 后 Makefile 默认的
         # DYNAMIC_CC=...-fPIC 不再生效，交叉构建 shared 需显式补 -fPIC
+        dyncc = target_cc + " -fPIC"
+    elif platform == "IOS":
+        # CI-PATCH: 同上 —— IOS 覆盖 TARGET_DYNCC 后需补 -fPIC（macOS
+        # Makefile 分支的 TARGET_DYNCC= $(STATIC_CC) 亦无 -fPIC）
         dyncc = target_cc + " -fPIC"
     vars = [
         "HOST_CC=" + host_cc,

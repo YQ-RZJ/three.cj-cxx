@@ -531,22 +531,26 @@ def compile_cmd(platform, mode, arch, ctx, args):
         return [cxx] + flags + common_defs + ["-O2" if mode == "release" else "-O0"], ar, False
 
     if platform == "IOS":
-        # 优先 xcrun
+        # CI-PATCH: 对齐 OSX 分支——按架构选择 SDK（模拟器必须用
+        # iphonesimulator，硬编码 iphoneos 会让 x86_64 模拟器构建
+        # 产出设备架构对象）；isysroot 在 Python 侧解析（macOS runner
+        # 的裸 clang 不继承 SDKROOT）。
+        sdk = "iphoneos" if arch == "arm64" else "iphonesimulator"
+        flags = ["-std=c++17", "-fno-omit-frame-pointer", "-fPIC",
+                 "-arch", "arm64" if arch == "arm64" else "x86_64",
+                 "-miphoneos-version-min=%s" % args.ios_deploy_target,
+                 "-isysroot"]
         xcrun = find_tool("xcrun")
         if xcrun:
-            flags = ["-std=c++17", "-fno-omit-frame-pointer", "-fPIC",
-                     "-arch", "arm64" if arch == "arm64" else "x86_64",
-                     "-miphoneos-version-min=%s" % args.ios_deploy_target,
-                     "-isysroot"]
-            # 需要 sdk 路径，用 xcrun --show-sdk-path
             sdk_path = subprocess.check_output(
-                [xcrun, "--sdk", "iphoneos", "--show-sdk-path"],
+                [xcrun, "--sdk", sdk, "--show-sdk-path"],
                 universal_newlines=True).strip()
-            return (["xcrun", "-sdk", "iphoneos", "clang++"] + flags + [sdk_path]
+            return (["xcrun", "-sdk", sdk, "clang++"] + flags + [sdk_path]
                     + opt + common_defs, "ar", False)
-        return (["clang++", "-std=c++17", "-fno-omit-frame-pointer", "-fPIC",
-                 "-arch", "arm64" if arch == "arm64" else "x86_64"]
-                + opt + common_defs, "ar", False)
+        sdk_path = subprocess.check_output(
+            ["xcodebuild", "-sdk", sdk, "-version", "Path"],
+            universal_newlines=True).strip().splitlines()[-1]
+        return (["clang++"] + flags + [sdk_path] + opt + common_defs, "ar", False)
 
     if platform == "OSX":
         flags = ["-std=c++17", "-fno-omit-frame-pointer", "-fPIC",

@@ -18,11 +18,11 @@ on:
       groups:
         description: "组清单（按序，留空则按全量组顺序）"
         required: false
-        default: "tracy"
+        default: "bgfx,sdl,imgui,httpclient,jolt,luajit,openal,tracy,cjbridge"
       libs:
         description: "库清单（按序，留空=全部库）"
         required: false
-        default: "tracy"
+        default: "bx,bimg,bimg_capi,bgfx,geometryc_capi,shaderc_capi,openssl,tlsbridge,cimgui,sdl,openal,miniaudio,jolt,luajit,ffi,napi,dlbridge,tracy"
 
 permissions:
   contents: read
@@ -51,9 +51,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 当前仅 tracy 的 build.py 声明支持 IOS 工具链（xcode）；
-      # 其余库如需 IOS 支持须先在各 build.py 中补 IOS 分支。
-      - name: Build (tracy only for now)
+      # IOS 已对齐 mac 全量编译：各组 build.py 的 ALL_PLATFORMS 均声明支持
+      # IOS 工具链（Xcode clang），由 ci_build.py 按全量组顺序编排
+      - name: Build all libraries
         run: |
           CMD="python3 .github/scripts/ci_build.py --platform IOS --arch ${{ matrix.arch }}"
           if [ -n "${{ inputs.modes }}" ]; then CMD="$CMD --modes ${{ inputs.modes }}"; fi

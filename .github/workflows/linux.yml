@@ -18,7 +18,7 @@ on:
       groups:
         description: "组清单（按序，留空则按全量组顺序）"
         required: false
-        default: "bgfx,httpclient,imgui,jolt,luajit,openal,sdl,tracy,cjbridge"
+        default: "bgfx,sdl,imgui,httpclient,jolt,luajit,openal,tracy,cjbridge"
       libs:
         description: "库清单（按序，留空=全部库）"
         required: false

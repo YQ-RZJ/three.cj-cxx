@@ -39,15 +39,19 @@ CXX_ROOT = os.path.dirname(os.path.dirname(HERE))          # cxx/
 DIST_ROOT = os.path.join(CXX_ROOT, "dist")
 
 # 平台 → 参与编译的组（与各 build.py 的 ALL_PLATFORMS 交集）
-# 顺序即编译顺序：imgui shared 链接期需要 SDL3/bgfx 预编译库，
-# 必须排在 bgfx / sdl 之后（否则 shared 组合因缺 --deps-lib 被跳过）
+# 顺序即编译顺序：默认统一以 bgfx/sdl/imgui 开头（用户约定），
+# imgui 依赖 bgfx/sdl 的预编译库，恰好排在其后（配合每组跑完
+# 即暂存的收集策略，shared 组合的 --deps-lib 始终可用）
+_BASE_GROUPS = ["bgfx", "sdl", "imgui", "httpclient", "jolt", "luajit", "openal", "tracy", "cjbridge"]
 PLATFORM_GROUPS = {
-    "LINUX":   ["bgfx", "httpclient", "jolt", "luajit", "openal", "sdl", "imgui", "tracy", "cjbridge"],
-    "WINDOWS": ["bgfx", "httpclient", "jolt", "luajit", "openal", "sdl", "imgui", "tracy", "cjbridge"],
-    "OSX":     ["bgfx", "httpclient", "jolt", "luajit", "openal", "sdl", "imgui", "tracy", "cjbridge"],
-    "ANDROID": ["bgfx", "httpclient", "jolt", "luajit", "openal", "sdl", "imgui", "tracy", "cjbridge"],
-    "OPHM":    ["bgfx", "httpclient", "jolt", "luajit", "openal", "sdl", "imgui", "tracy", "cjbridge"],
-    "IOS":     ["tracy"],
+    "LINUX":   list(_BASE_GROUPS),
+    "WINDOWS": list(_BASE_GROUPS),
+    "OSX":     list(_BASE_GROUPS),
+    "ANDROID": list(_BASE_GROUPS),
+    "OPHM":    list(_BASE_GROUPS),
+    # IOS 与 OSX 同为 Apple 工具链（Xcode clang），各组脚本 ALL_PLATFORMS 均已
+    # 声明支持 IOS，全量对齐 mac
+    "IOS":     list(_BASE_GROUPS),
 }
 
 # OS 目录名（打包结构第一级）
@@ -125,7 +129,6 @@ def stage_imgui_deps(cxx_root: str, arch: str) -> str:
     os.makedirs(stage, exist_ok=True)
     dep_stems = ("libbgfx", "libbx", "libbimg", "libSDL3", "libsdl3",
                  "bgfx", "bx", "bimg", "SDL3", "sdl3")
-    staged = []
     for src_root in ("output", "build"):
         base = os.path.join(cxx_root, src_root)
         if not os.path.isdir(base):
@@ -138,7 +141,10 @@ def stage_imgui_deps(cxx_root: str, arch: str) -> str:
                 dst = os.path.join(stage, stem)
                 if not os.path.isfile(dst):
                     shutil.copy2(f, dst)
-                    staged.append(stem)
+    # CI-PATCH3: 以暂存目录的最终内容判断依赖完整性，而非本次新增——
+    # 每组跑完即暂存（增量）时，imgui 启动前文件均已存在、本次新增为 0，
+    # 按新增判断会误报"依赖不全"导致 shared 被跳过（mock 自检实测）。
+    staged = os.listdir(stage)
     if not staged:
         return ""
     has_bgfx = any("bgfx" in s.lower() for s in staged)
@@ -241,8 +247,9 @@ def main():
                 print(f"[ci] skip {group}（--libs 未包含本组库）", flush=True)
                 continue
             cmd += ["--libs", ",".join(subset)]
-        # CI-PATCH: imgui shared 构建需要 SDL3/bgfx 预编译库目录；
-        # 此时 bgfx/sdl 已编译完成，收集其库产物作 --deps-lib 传入
+        # CI-PATCH: imgui shared 构建需要 SDL3/bgfx 预编译库目录。
+        # 各组跑完后立即暂存（见下），此处直接复用累计的暂存目录；
+        # 若暂存为空再现场收集一次兜底（跳过前组时仍能收到）。
         if group == "imgui" and script_supports(script, "--deps-lib"):
             stage = stage_imgui_deps(CXX_ROOT, args.arch)
             if stage:
@@ -250,6 +257,12 @@ def main():
             else:
                 print("[ci] WARN imgui: 未收集到依赖库产物，shared 组合将被跳过", flush=True)
         run(cmd, env)
+        # CI-PATCH: 每组跑完立即暂存依赖库 —— 后续组的 --clean 会清空
+        # 共享的 build/、dist/ 顶层目录，等 imgui 启动前才收集会两手空空
+        # （Linux 实测：httpclient 的 --clean 删掉 bgfx 产物）。累计收集，
+        # 暂存目录在 cxx 根下 ci_deps/（不在各脚本 --clean 的范围内）。
+        if group != "imgui":
+            stage_imgui_deps(CXX_ROOT, args.arch)
 
     # ---- 归包：dist/<os>/<arch>/{static,shared} ----
     srcs = []

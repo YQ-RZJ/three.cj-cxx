@@ -604,6 +604,10 @@ def toolchain_cfg(platform, arch, toolchain, host, ctx, args):
             "-DCMAKE_OSX_ARCHITECTURES=" + ("arm64" if arch == "arm64-v8a" else "x86_64"),
             "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0",
         ]
+        # CI-PATCH: 模拟器架构必须显式指定 iphonesimulator（对齐 imgui），
+        # 否则 CMake 按默认 iphoneos 设备 SDK 配置 x86_64
+        if arch != "arm64-v8a":
+            cfg += ["-DCMAKE_OSX_SYSROOT=iphonesimulator"]
 
     elif platform == "OSX":
         cfg += [
