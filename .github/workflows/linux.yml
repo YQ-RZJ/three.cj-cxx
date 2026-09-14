@@ -56,7 +56,14 @@ jobs:
       - name: Install system deps (X11/OpenGL for bgfx)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libx11-dev libgl1-mesa-dev
+          # CI-PATCH: SDL 的 CheckX11 要求 X11 库 + Xext 等扩展头同时成立
+          # 才启用 X11 后端——缺扩展时静默关闭并在汇总阶段硬检查报错
+          # （x86_64 job 实测：只装 libx11-dev 时 Video drivers 退化为
+          # dummy offscreen 后撞 431 行错误）。x86_64 与 arm64 两侧都
+          # 需要扩展全家桶。
+          sudo apt-get install -y libx11-dev libxext-dev libxfixes-dev \
+            libxcursor-dev libxi-dev libxrandr-dev libxrender-dev \
+            libxss-dev libxtst-dev libgl1-mesa-dev
 
       - name: Install cross toolchain (arm64)
         if: matrix.arch == 'arm64-v8a'

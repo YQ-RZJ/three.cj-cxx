@@ -97,14 +97,19 @@ jobs:
             exit 1
           fi
           echo "NATIVE_ZIP=$NATIVE_ZIP"
-          # CI-PATCH: Git Bash 默认不带 unzip（windows runner 实测
-          # command not found → exit 1，此时 find 已命中组件 zip）。
-          # 用预装 7z 解压，缺失时回退 PowerShell Expand-Archive。
-          if command -v 7z >/dev/null 2>&1; then
-            7z x -y "$NATIVE_ZIP" > /dev/null
+          # CI-PATCH: Git Bash 不带 unzip，7z 也不在 Git Bash 的 PATH
+          # （windows runner 实测：find 命中 zip 后 7z/兜底双双无输出
+          # exit 1）。改为 PowerShell Expand-Archive 主路径（runner 必有
+          # powershell.exe），7z 仅作存在时的快路径；失败时打印诊断。
+          ZWIN=$(cygpath -w "$(pwd)" 2>/dev/null || pwd)
+          ZWIN_FILE=$(cygpath -w "$NATIVE_ZIP" 2>/dev/null || echo "$NATIVE_ZIP")
+          if [ -x "/c/Program Files/7-Zip/7z.exe" ]; then
+            "/c/Program Files/7-Zip/7z.exe" x -y "$NATIVE_ZIP" || {
+              echo "[ERROR] 7z 解压失败（exit=$?）"; exit 1; }
           else
-            ZWIN=$(cygpath -w "$NATIVE_ZIP" 2>/dev/null || echo "$NATIVE_ZIP")
-            powershell.exe -NoProfile -Command "Expand-Archive -Path '$ZWIN' -DestinationPath '.' -Force"
+            echo "[INFO] 7z 不可用，改用 PowerShell Expand-Archive（可能较慢）"
+            powershell.exe -NoProfile -Command "Expand-Archive -LiteralPath '$ZWIN_FILE' -DestinationPath '$ZWIN' -Force" || {
+              echo "[ERROR] Expand-Archive 解压失败（zip=$ZWIN_FILE dest=$ZWIN）"; exit 1; }
           fi
           NATIVE_DIR=$(find . -maxdepth 4 -type d -name native | grep -i windows | head -1)
           if [ -z "$NATIVE_DIR" ]; then NATIVE_DIR=$(find . -maxdepth 4 -type d -name native | head -1); fi

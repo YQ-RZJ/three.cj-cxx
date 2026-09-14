@@ -705,6 +705,11 @@ def toolchain_cfg(platform, arch, toolchain, host, ctx, args):
             # Visual Studio 多配置生成器：-A 指定架构
             arch_map = {"x86_64": "x64", "arm64-v8a": "ARM64"}
             cfg += ["-A", arch_map.get(arch, "x64")]
+            # CI-PATCH: bx 的 platform.h 硬性要求 MSVC 开启标准 __cplusplus
+            # 宏（否则 #error "When using MSVC you must set /Zc:__cplusplus
+            # compiler option"，windows x86_64 msvc job 实测）——MSVC 默认
+            # __cplusplus 仍是 199711L，必须显式开该开关。
+            cfg += ["-DCMAKE_CXX_FLAGS=/Zc:__cplusplus"]
         else:
             # mingw（Windows 主机本机或非 Windows 主机交叉）
             tc = probe_mingw(arch, ctx.get("mingw"))

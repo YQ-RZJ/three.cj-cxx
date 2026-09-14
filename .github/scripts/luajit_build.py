@@ -631,6 +631,13 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
         # 用目标编译器（clang -isysroot iphoneos --target=arm64-apple-ios）
         # 链接。OSX 分支宿主即目标，无需覆盖（此前 mac job 已验证）。
         vars.append("TARGET_LD=" + target_cc)
+        # CI-PATCH: Makefile 默认 all 目标 = TARGET_T = luajit 可执行文件
+        # + libluajit.so。Apple 工具链对 iOS 目标链接裸可执行文件时不注入
+        # crt1（"Undefined symbols for architecture x86_64: start"，
+        # iOS-simulator job 实测；真机 arm64 同理）——iOS 惯例上不构建
+        # 裸可执行文件。FFI 消费的只是动态库，覆盖 TARGET_T 为仅
+        # libluajit.so，跳过可执行链接。
+        vars.append("TARGET_T=" + "libluajit.so")
     if mode == "debug":
         vars.append("CCDEBUG=-g")
     return vars
