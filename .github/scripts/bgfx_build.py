@@ -460,7 +460,26 @@ def cmake_config(platform, mode, arch, libtype, toolchain, host, ctx):
         # msvc: 直接使用本机 Visual Studio 生成器，无需额外 cache 变量
         return cache, env_over
 
-    # ---- LINUX / BSD：本机原生 ----
+    # ---- LINUX / BSD：本机原生；arm64 时注入 aarch64-linux-gnu 交叉工具链 ----
+    if platform == "LINUX" and arch == "arm64-v8a":
+        cc = "/usr/bin/aarch64-linux-gnu-gcc"
+        cxx = "/usr/bin/aarch64-linux-gnu-g++"
+        if os.path.isfile(cc) and os.path.isfile(cxx):
+            cache["CMAKE_SYSTEM_NAME"] = "Linux"
+            cache["CMAKE_SYSTEM_PROCESSOR"] = "aarch64"
+            cache["CMAKE_C_COMPILER"] = cc
+            cache["CMAKE_CXX_COMPILER"] = cxx
+            # 预置 X11/OpenGL 探测结果：CI 用 :arm64 多架构包（装在
+            # /usr/lib/aarch64-linux-gnu），不预置的话 find_package 会
+            # 撞上宿主 x86_64 的库，导致链接架构错误。变量已设时
+            # FindX11/FindOpenGL 跳过搜索直接采用。
+            alib = "/usr/lib/aarch64-linux-gnu"
+            if os.path.isfile(os.path.join(alib, "libX11.so")):
+                cache["X11_X11_INCLUDE_PATH"] = "/usr/include"
+                cache["X11_X11_LIB"] = os.path.join(alib, "libX11.so")
+            if os.path.isfile(os.path.join(alib, "libGL.so")):
+                cache["OPENGL_INCLUDE_DIR"] = "/usr/include"
+                cache["OPENGL_gl_LIBRARY"] = os.path.join(alib, "libGL.so")
     return cache, env_over
 
 

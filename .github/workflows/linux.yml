@@ -53,11 +53,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system deps (X11/OpenGL for bgfx)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libgl1-mesa-dev
+
       - name: Install cross toolchain (arm64)
         if: matrix.arch == 'arm64-v8a'
         run: |
           sudo apt-get update
           sudo apt-get install -y g++-aarch64-linux-gnu gcc-aarch64-linux-gnu
+          # bgfx 的 CMakeLists 在 Linux 上 find_package(X11/OpenGL REQUIRED)，
+          # arm64 交叉需装 :arm64 多架构运行时库（头文件与 x86_64 共享）
+          sudo dpkg --add-architecture arm64
+          sudo sed -i 's/^deb http/deb [arch=amd64] http/' /etc/apt/sources.list
+          {
+            printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s main universe\n' "$(lsb_release -cs)"
+          } | sudo tee /etc/apt/sources.list.d/arm64.list >/dev/null
+          sudo apt-get update || true
+          sudo apt-get install -y libx11-dev:arm64 libgl1-mesa-dev:arm64 || \
+            echo "[WARN] arm64 X11/GL 多架构包安装失败（bgfx_build.py 的预置变量探测会跳过）"
 
       - name: Build all libraries
         run: |

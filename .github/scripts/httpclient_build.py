@@ -751,11 +751,14 @@ def clean_openssl(ssl_dir, msys2=None):
     if is_windows() and msys2:
         msys2_bash = os.path.join(msys2, "usr", "bin", "bash.exe")
         ssl_dir_msys = to_msys2_path(ssl_dir)
+        # CI-PATCH: distclean 依赖 Configure 生成的 Makefile；首次构建时源码树
+        # 尚无 Makefile，make 会报 "No rule to make target 'distclean'"——先探测。
         run([msys2_bash, "-c",
-             'cd "%s" && make distclean 2>/dev/null; exit 0' % ssl_dir_msys],
+             'cd "%s" && [ -f Makefile ] && make distclean 2>/dev/null; exit 0' % ssl_dir_msys],
              cwd=ssl_dir)
     elif not is_windows():
-        run(["make", "distclean"], cwd=ssl_dir)
+        if os.path.isfile(os.path.join(ssl_dir, "Makefile")):
+            run(["make", "distclean"], cwd=ssl_dir)
 
     # 1) 删除 perlasm 生成的 .s/.S（按 GENERATE 映射，精确、不误删手写源码）
     gen_asm = _generated_asm_files(ssl_dir)
@@ -1026,7 +1029,9 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
 
     elif platform in ("LINUX", "BSD"):
         # Linux/BSD: 使用系统 gcc/clang
-        cmd = ["./Configure"] + config_opts
+        # CI-PATCH: 用 perl 显式执行 Configure——macOS runner 的 checkout 不保留
+        # exec 位，"./Configure" 直接执行报 Permission denied（perl 脚本）。
+        cmd = ["perl", "./Configure"] + config_opts
         rc = run(cmd, cwd=ssl_dir, env=env, log=log_path)
         if rc != 0:
             return False
@@ -1050,7 +1055,9 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
             env["CC"] = find_tool("clang") or "clang"
             env["CFLAGS"] = "-target " + target
 
-        cmd = ["./Configure"] + config_opts
+        # CI-PATCH: 用 perl 显式执行 Configure——macOS runner 的 checkout 不保留
+        # exec 位，"./Configure" 直接执行报 Permission denied（perl 脚本）。
+        cmd = ["perl", "./Configure"] + config_opts
         rc = run(cmd, cwd=ssl_dir, env=env, log=log_path)
         if rc != 0:
             return False

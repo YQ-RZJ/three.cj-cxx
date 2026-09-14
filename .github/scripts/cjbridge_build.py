@@ -701,7 +701,8 @@ def build_one(platform, mode, arch, libtype, toolchain, host, args, ctx, log_pat
 
     # CI-PATCH: --libs 选择性构建（默认全量）：ffi/napi/dlbridge 三段独立过滤
     # （napi 仅 OPHM 编译，不受 --libs 控制）
-    if "ffi" not in libs_wanted:
+    wanted = parse_libs_arg(args.libs, _ALLOWED_LIBS, "cjbridge")
+    if "ffi" not in wanted:
         print("  [skip] requireCJLib (C FFI)（--libs 未包含）")
         return True
     # 1) 编译 requireCJLib (C FFI 变体)
@@ -715,7 +716,7 @@ def build_one(platform, mode, arch, libtype, toolchain, host, args, ctx, log_pat
     # 2) 编译 requireCJLib-ark (NAPI 变体)
     #    NAPI 变体需要 OHOS NDK 的 node_api.h，仅 OPHM 平台编译
     if not args.skip_napi and platform == "OPHM":
-        if "napi" not in libs_wanted:
+        if "napi" not in wanted:
             print("  [skip] requireCJLib-ark (NAPI)（--libs 未包含）")
         else:
             print("  [%s/%s/%s] 编译 requireCJLib-ark (NAPI) ..." % (mode, arch, platform))
@@ -727,7 +728,7 @@ def build_one(platform, mode, arch, libtype, toolchain, host, args, ctx, log_pat
 
     # 3) 编译 dlbridge (动态库加载桥)
     if not args.skip_dlbridge:
-        if "dlbridge" not in libs_wanted:
+        if "dlbridge" not in wanted:
             print("  [skip] dlbridge（--libs 未包含）")
         else:
             print("  [%s/%s/%s] 编译 dlbridge ..." % (mode, arch, platform))
