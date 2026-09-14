@@ -76,7 +76,15 @@ if(REQUIRECJ_NAPI_SHARED)
             target_link_options(requirecj_napi PRIVATE -undefined dynamic_lookup)
         else()
             # GCC/Clang: 允许未解析符号（Linux/Android/OHOS）
-            target_link_options(requirecj_napi PRIVATE -Wl,--allow-shlib-undefined)
+            # CI-PATCH: OHOS 工具链（ohos.toolchain.cmake）默认追加
+            # -Wl,--no-undefined，--allow-shlib-undefined 是独立开关抵消
+            # 不了它——napi_*（宿主 libace_napi.z.so 运行时提供）与
+            # 仓颉运行时符号（InitCJRuntime 等）链接期全部报 undefined
+            # （OHOS job 实测）。--unresolved-symbols=ignore-all 与
+            # requireCJLib（ffi 侧）Android 修复同款，lld 认可。
+            target_link_options(requirecj_napi PRIVATE
+                -Wl,--allow-shlib-undefined
+                -Wl,--unresolved-symbols=ignore-all)
         endif()
     endif()
 endif()
