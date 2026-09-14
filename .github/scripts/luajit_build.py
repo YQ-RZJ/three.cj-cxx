@@ -614,6 +614,14 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
         # 同理 strip 也默认宿主 strip，改用三元组工具（不存在时保持原值让报错可见）
         strip = find_tool("aarch64-linux-gnu-strip") or "aarch64-linux-gnu-strip"
         vars.append("TARGET_STRIP=" + strip)
+    elif platform == "OSX" and arch != machine_arch():
+        # CI-PATCH: Makefile 默认 TARGET_LD=$(CROSS)$(CC)=宿主 gcc——
+        # arm64 宿主（macos-latest）编 x86_64 时 DYNLINK/LINK 用裸 gcc，
+        # 链接器按 arm64 解析 x86_64 对象，全部 "ignoring file ... found
+        # architecture 'x86_64', required architecture 'arm64'"（mac x86
+        # job 实测）。跨架构时显式用目标编译器链接；同架构（arm64 宿主
+        # 编 arm64）宿主即目标，无需覆盖（此前 mac job 已验证）。
+        vars.append("TARGET_LD=" + target_cc)
     elif platform == "IOS":
         # CI-PATCH: Makefile 默认 TARGET_LD=$(CROSS)$(CC)=宿主 gcc——
         # DYNLINK libluajit.so 时宿主链接器按 macOS 目标链接 iOS 对象，
