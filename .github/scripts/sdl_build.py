@@ -365,9 +365,34 @@ def cmake_configure_args(platform, mode, arch, libtype, toolchain, host, ctx):
     elif platform == "LINUX":
         if host != "LINUX":
             raise RuntimeError("LINUX 目标需要在 Linux 主机上编译")
-        cc = find_tool("clang") or find_tool("gcc") or "gcc"
-        cxx = find_tool("clang++") or find_tool("g++") or "g++"
-        args += ["-DCMAKE_C_COMPILER=" + cc, "-DCMAKE_CXX_COMPILER=" + cxx]
+        # CI-PATCH: arm64 交叉——注入 aarch64-linux-gnu 工具链（与 bgfx/
+        # httpclient 同款缺口）。预置 X11 的 find_package 结果变量，指向
+        # :arm64 多架构包的 libX11.so（linux.yml 已装）；SDL3 的 CMake 在
+        # 汇总阶段硬检查"X11 或 Wayland 至少一个"（cmake/macros.cmake:431），
+        # 预置变量可让探测命中。都探测不到时退而关闭 X11/Wayland（console
+        # 构建）绕过硬错误，保证产物仍能出。
+        if arch == "arm64":
+            import os as _os
+            cross_cc = "/usr/bin/aarch64-linux-gnu-gcc"
+            cross_cxx = "/usr/bin/aarch64-linux-gnu-g++"
+            if _os.path.isfile(cross_cc):
+                args += ["-DCMAKE_C_COMPILER=" + cross_cc,
+                         "-DCMAKE_CXX_COMPILER=" + cross_cxx,
+                         "-DCMAKE_SYSTEM_NAME=Linux",
+                         "-DCMAKE_SYSTEM_PROCESSOR=aarch64"]
+                alib = "/usr/lib/aarch64-linux-gnu"
+                if _os.path.isfile(_os.path.join(alib, "libX11.so")):
+                    args += ["-DX11_X11_LIB=" + _os.path.join(alib, "libX11.so"),
+                             "-DX11_X11_INCLUDE_PATH=/usr/include",
+                             "-DX11_INCLUDE_DIR=/usr/include"]
+            if not _os.path.isfile("/usr/lib/aarch64-linux-gnu/libX11.so"):
+                # 兜底：无 :arm64 X11 时跳过桌面窗口后端（SDL 官方文档认可）
+                args += ["-DSDL_X11=OFF", "-DSDL_WAYLAND=OFF",
+                         "-DSDL_UNIX_CONSOLE_BUILD=ON"]
+        else:
+            cc = find_tool("clang") or find_tool("gcc") or "gcc"
+            cxx = find_tool("clang++") or find_tool("g++") or "g++"
+            args += ["-DCMAKE_C_COMPILER=" + cc, "-DCMAKE_CXX_COMPILER=" + cxx]
 
     # ---- WINDOWS: 本机 mingw (clang/gcc) 或 msvc ----
     elif platform == "WINDOWS":
