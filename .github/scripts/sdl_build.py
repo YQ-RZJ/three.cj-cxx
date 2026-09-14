@@ -385,10 +385,17 @@ def cmake_configure_args(platform, mode, arch, libtype, toolchain, host, ctx):
                     args += ["-DX11_X11_LIB=" + _os.path.join(alib, "libX11.so"),
                              "-DX11_X11_INCLUDE_PATH=/usr/include",
                              "-DX11_INCLUDE_DIR=/usr/include"]
-            if not _os.path.isfile("/usr/lib/aarch64-linux-gnu/libX11.so"):
-                # 兜底：无 :arm64 X11 时跳过桌面窗口后端（SDL 官方文档认可）
-                args += ["-DSDL_X11=OFF", "-DSDL_WAYLAND=OFF",
-                         "-DSDL_UNIX_CONSOLE_BUILD=ON"]
+                # CI-PATCH2: SDL 的 CheckX11 要求 X11_LIB **且** HAVE_XEXT_H
+                # 同时成立才启用 X11 后端（cmake/sdlchecks.cmake:330）——只有
+                # libX11 没有 libxext 时 SDL 会静默把 SDL_X11 关掉，然后在汇总
+                # 阶段硬检查报错（linux arm64 job 实测）。所以兜底条件必须
+                # 同时看 libX11 与 libXext 的存在性。
+                x11_ok = _os.path.isfile(_os.path.join(alib, "libX11.so"))
+                xext_ok = _os.path.isfile(_os.path.join(alib, "libXext.so"))
+                if not (x11_ok and xext_ok):
+                    # 兜底：:arm64 X11/Xext 不齐时跳过桌面窗口后端（SDL 官方文档认可）
+                    args += ["-DSDL_X11=OFF", "-DSDL_WAYLAND=OFF",
+                             "-DSDL_UNIX_CONSOLE_BUILD=ON"]
         else:
             cc = find_tool("clang") or find_tool("gcc") or "gcc"
             cxx = find_tool("clang++") or find_tool("g++") or "g++"
@@ -427,6 +434,16 @@ def cmake_configure_args(platform, mode, arch, libtype, toolchain, host, ctx):
             args += ["-DCMAKE_OSX_ARCHITECTURES=" + ("arm64" if arch == "arm64" else "x86_64")]
             if arch != "arm64":
                 args += ["-DCMAKE_OSX_SYSROOT=iphonesimulator"]
+        # CI-PATCH: SDL 上游 CMakeLists 的 SDL_FRAMEWORK_USERNOTIFICATIONS/
+        # SECURITY 置位与 find_library 段嵌在 if(ANDROID) 守卫内（L1487），
+        # iOS 上根本不执行——传 -D 无效（iOS job 实测链接行仍缺框架）。
+        # SDL_NOTIFICATION=ON 编入的 SDL_cocoanotification.m 引用
+        # UNUserNotificationCenter/SecRandomCopyBytes，直接给链接器补框架。
+        if platform == "IOS":
+            args += [
+                "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-framework,UserNotifications -Wl,-framework,Security",
+                "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-framework,UserNotifications -Wl,-framework,Security",
+            ]
 
     # Generator: 优先 Ninja, 回退 MinGW Makefiles (Windows)
     args += generator_args()
