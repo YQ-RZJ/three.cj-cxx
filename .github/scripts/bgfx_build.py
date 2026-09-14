@@ -9,15 +9,15 @@ bgfx_build.py，参数约定与旧版保持兼容：
 
   - 模式:   debug / release
   - 架构:   x86_64 / arm64-v8a
-  - 平台:   LINUX WINDOWS ANDROID OPHM BSD EMSCRIPTEN IOS OSX
+  - 平台:   LINUX WINDOWS ANDROID OHOS BSD EMSCRIPTEN IOS OSX
   - 库类型: static / shared（对应 BGFX_LIBRARY_TYPE）
   - 库清单: --libs bx,bimg,bimg_capi,bgfx,geometryc_capi,shaderc_capi
     （CMake 单工程一次性编译全部目标，--libs 仅做名称校验以兼容 CI 分发，
     不做单库裁剪）
 
-  OPHM = OpenHarmony / HarmonyOS：使用 OHOS NDK 的 llvm/bin/clang +
+  OHOS = OpenHarmony / HarmonyOS：使用 OHOS NDK 的 llvm/bin/clang +
   --target=*-linux-ohos --sysroot=<sdk>/sysroot 交叉编译（CMake 选项
-  BX_PLATFORM_OPHM=ON；hilog 输出、EGL 库名回退等 OHOS 定制由该宏启用，
+  BX_PLATFORM_OHOS=ON；hilog 输出、EGL 库名回退等 OHOS 定制由该宏启用，
   渲染走 GLES30 路径）。
 
 行为约定：
@@ -28,7 +28,7 @@ bgfx_build.py，参数约定与旧版保持兼容：
   2. WINDOWS 平台（Windows 主机上）自动尝试 msvc / mingw，优先 msvc，
      失败后自动回退 mingw；
   3. 其余平台优先使用 clang 工具链；
-  4. 需要 NDK / emsdk 等 SDK 的交叉编译平台（ANDROID、OPHM、EMSCRIPTEN、
+  4. 需要 NDK / emsdk 等 SDK 的交叉编译平台（ANDROID、OHOS、EMSCRIPTEN、
      以及非 Windows 主机上的 WINDOWS 交叉编译），会要求开发者提供 SDK 路径
      （命令行参数 > 环境变量 > 交互询问）后再推进编译，无法提供则告警跳过；
   5. IOS / OSX 必须在其自身系统（macOS）上编译：脚本检测到自身运行在
@@ -38,7 +38,7 @@ bgfx_build.py，参数约定与旧版保持兼容：
   python bgfx_build.py                             # 全部平台排列组合
   python bgfx_build.py --platforms ANDROID,WINDOWS # 只编指定平台
   python bgfx_build.py --platforms ANDROID --ndk D:/ndk
-  python bgfx_build.py --platforms OPHM --ohos-sdk D:/ohos-sdk
+  python bgfx_build.py --platforms OHOS --ohos-sdk D:/ohos-sdk
   python bgfx_build.py --modes release --arches x86_64
   python bgfx_build.py --libtype static            # 只编静态库
   python bgfx_build.py --batch                     # 非交互（不询问，缺 SDK 即跳过）
@@ -102,7 +102,7 @@ CAPI_HEADERS = [
     "shaderc_capi/shaderc_capi.h",
 ]
 
-ALL_PLATFORMS = ["LINUX", "WINDOWS", "ANDROID", "OPHM", "BSD", "EMSCRIPTEN", "IOS", "OSX"]
+ALL_PLATFORMS = ["LINUX", "WINDOWS", "ANDROID", "OHOS", "BSD", "EMSCRIPTEN", "IOS", "OSX"]
 ALL_MODES = ["debug", "release"]
 ALL_ARCHES = ["x86_64", "arm64-v8a"]
 ALL_LIBTYPES = ["static", "shared"]
@@ -171,7 +171,7 @@ def parse_args():
     )
     ap.add_argument("--platforms", default=",".join(ALL_PLATFORMS),
                     help="编译平台清单，逗号分隔，可选: " + ",".join(ALL_PLATFORMS)
-                         + "（默认全部，OPHM=OpenHarmony/HarmonyOS）")
+                         + "（默认全部，OHOS=OpenHarmony/HarmonyOS）")
     ap.add_argument("--modes", default=",".join(ALL_MODES),
                     help="编译模式清单，逗号分隔: debug,release（默认全部）")
     ap.add_argument("--arches", default=",".join(ALL_ARCHES),
@@ -326,7 +326,7 @@ def can_build(platform, host, ctx):
         if ctx.get("ndk"):
             return True, ""
         return False, "缺少 NDK 路径（--ndk / ANDROID_NDK_HOME / 交互提供）"
-    if platform == "OPHM":
+    if platform == "OHOS":
         if ctx.get("ohos"):
             return True, ""
         return False, "缺少 OpenHarmony (OHOS) NDK 路径（--ohos-sdk / OHOS_SDK / 交互提供）"
@@ -379,13 +379,13 @@ def cmake_config(platform, mode, arch, libtype, toolchain, host, ctx):
     cache["BX_AMALGAMATED"] = "OFF"
     cache["BGFX_AMALGAMATED"] = "OFF"
 
-    # ---- OPHM（OpenHarmony / HarmonyOS）：OHOS NDK clang 交叉 ----
-    if platform == "OPHM":
+    # ---- OHOS（OpenHarmony / HarmonyOS）：OHOS NDK clang 交叉 ----
+    if platform == "OHOS":
         sdk = ctx.get("ohos")
         if not sdk:
-            raise RuntimeError("OPHM 需要 OHOS SDK 路径")
+            raise RuntimeError("OHOS 需要 OHOS SDK 路径")
         cc, cxx, _ld, sysroot, target = probe_ohos(sdk, arch)
-        cache["BX_PLATFORM_OPHM"] = "ON"
+        cache["BX_PLATFORM_OHOS"] = "ON"
         cache["OHOS_SDK"] = sdk
         cache["CMAKE_SYSTEM_NAME"] = "Linux"
         cache["CMAKE_SYSTEM_PROCESSOR"] = "aarch64" if arch == "arm64-v8a" else "x86_64"
@@ -461,6 +461,14 @@ def cmake_config(platform, mode, arch, libtype, toolchain, host, ctx):
             mk = find_tool("ninja")
             if mk:
                 cache["CMAKE_MAKE_PROGRAM"] = mk
+            # CI-PATCH: MinGW shared 构建必须 --export-all-symbols——
+            # bgfx.cmake 的 WINDOWS_EXPORT_ALL_SYMBOLS 只对 MSVC 生效，
+            # MinGW/ld 默认仅导出 dllexport 符号（本机实测：libbgfx.dll
+            # 只导出 57 个 C API 符号、bgfx:: C++ 符号 0 个；消费者链接
+            # bgfx::getCaps() 直接 undefined——windows x86 imgui job 同症）。
+            # 加此旗标后导出 5842 个符号，消费者链接复刻通过。
+            if libtype == "shared":
+                cache["CMAKE_SHARED_LINKER_FLAGS"] = "-Wl,--export-all-symbols"
         # msvc: 直接使用本机 Visual Studio 生成器，无需额外 cache 变量
         return cache, env_over
 
@@ -730,10 +738,10 @@ def main():
         ctx["ndk"] = resolve_ndk(args)
         if not ctx["ndk"]:
             print("  [WARN] ANDROID 平台因缺少 NDK 路径被跳过")
-    if "OPHM" in platforms:
+    if "OHOS" in platforms:
         ctx["ohos"] = resolve_ohos_sdk(args)
         if not ctx["ohos"]:
-            print("  [WARN] OPHM 平台因缺少 OHOS SDK 路径被跳过")
+            print("  [WARN] OHOS 平台因缺少 OHOS SDK 路径被跳过")
     if "EMSCRIPTEN" in platforms:
         ctx["emsdk"] = resolve_emsdk(args)
         if not ctx["emsdk"]:
