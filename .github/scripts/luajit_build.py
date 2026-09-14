@@ -548,8 +548,14 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
         # ...-fPIC 不再生效，shared 构建需显式补 -fPIC——不分架构
         # （x86_64 本机构建同样需要：CI 实测 lj_err.o 缺 -fPIC 报
         # "relocation R_X86_64_TPOFF32 against 'static_uex' can not be
-        # used when making a shared object"，DYNLINK libluajit.so 失败）
-        dyncc = target_cc + " -fPIC"
+        # used when making a shared object"，DYNLINK libluajit.so 失败）。
+        # CI-PATCH2: 真正的坑在 TARGET_CC 本身——Makefile dynamic 模式下
+        # 非 Windows 目标会 TARGET_CC= $(DYNAMIC_CC)（自动 -fPIC），且
+        # LJVMCORE_DYNO= $(LJVMCORE_O)（链接进 .so 的是普通对象而非
+        # _dyn.o）；命令行覆盖 TARGET_CC 压掉了这行赋值，普通对象因此
+        # 缺 -fPIC。给 TARGET_CC 直接补 -fPIC 才治本（dyncc 连带同值）。
+        target_cc = target_cc + " -fPIC"
+        dyncc = target_cc
     elif platform == "IOS":
         # CI-PATCH: 同上 —— IOS 覆盖 TARGET_DYNCC 后需补 -fPIC（macOS
         # Makefile 分支的 TARGET_DYNCC= $(STATIC_CC) 亦无 -fPIC）
