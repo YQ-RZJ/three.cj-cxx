@@ -392,6 +392,20 @@ def cmake_configure_args(platform, mode, arch, libtype, toolchain, host, ctx):
                 # 同时看 libX11 与 libXext 的存在性。
                 x11_ok = _os.path.isfile(_os.path.join(alib, "libX11.so"))
                 xext_ok = _os.path.isfile(_os.path.join(alib, "libXext.so"))
+                if x11_ok and xext_ok:
+                    # CI-PATCH3: X11 启用后 CheckX11 逐个硬检查扩展依赖
+                    # （XCURSOR/XINPUT/XFIXES/XRANDR/XRENDER/XSS/XTEST/XDBE/XSYNC，
+                    # 缺一个直接 CMake Error，linux job 实测 XCURSOR 撞死）。
+                    # 按 :arm64 库存在性逐项关闭缺失扩展，装了的自动启用。
+                    for ext, lib in (("XCURSOR", "libXcursor.so"),
+                                     ("XINPUT", "libXi.so"),
+                                     ("XFIXES", "libXfixes.so"),
+                                     ("XRANDR", "libXrandr.so"),
+                                     ("XRENDER", "libXrender.so"),
+                                     ("XSS", "libXss.so"),
+                                     ("XTEST", "libXtst.so")):
+                        if not _os.path.isfile(_os.path.join(alib, lib)):
+                            args += ["-DSDL_X11_%s=OFF" % ext]
                 if not (x11_ok and xext_ok):
                     # 兜底：:arm64 X11/Xext 不齐时跳过桌面窗口后端（SDL 官方文档认可）
                     args += ["-DSDL_X11=OFF", "-DSDL_WAYLAND=OFF",

@@ -87,8 +87,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libc6:arm64 libx11-6:arm64 libx11-dev:arm64 \
             libxext6:arm64 libxext-dev:arm64 \
+            libxfixes-dev:arm64 libxcursor-dev:arm64 libxi-dev:arm64 \
+            libxrandr-dev:arm64 libxrender-dev:arm64 libxss-dev:arm64 \
+            libxtst-dev:arm64 \
             libgl1:arm64 libgl1-mesa-dev:arm64 || \
-            echo "[WARN] arm64 X11/GL 多架构包安装失败（bgfx_build.py 的预置变量探测会跳过）"
+            echo "[WARN] arm64 X11/GL 多架构包安装失败（sdl_build.py 会按存在性关闭缺失的 X11 扩展）"
 
       - name: Build all libraries
         run: |

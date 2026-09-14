@@ -765,6 +765,11 @@ def toolchain_cfg(platform, arch, toolchain, host, ctx, args):
             "-DCMAKE_SYSTEM_NAME=iOS",
             "-DCMAKE_OSX_ARCHITECTURES=" + ("arm64" if arch == "arm64-v8a" else "x86_64"),
             "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0",
+            # CI-PATCH: Xcode 生成器默认要求签名（CI 无 development team，
+            # "Signing for imgui requires a development team" 实测报错）。
+            # CI 产物是未分发框架，整体关闭签名。
+            "-DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO",
+            "-DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO",
         ]
         if arch != "arm64-v8a":
             cfg += ["-DCMAKE_OSX_SYSROOT=iphonesimulator"]
