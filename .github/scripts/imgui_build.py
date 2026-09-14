@@ -171,11 +171,12 @@ HEADER_EXTENSIONS = (".h", ".hpp")
 # 目录布局：脚本位于 <cxx根>/.github/scripts/ 下，SCRIPT_DIR（dirname×3）即 cxx 根
 # CI-PATCH: CXX_ROOT 不再上跳一级——GitHub 上 cxx 根即仓库根，多退一级会指向仓库外
 CXX_ROOT     = SCRIPT_DIR
-# CI-PATCH: 目录扁平化后，SDL/bgfx 家族直接位于 cxx 根（原 sdl/SDL、bgfx/bgfx 嵌套已移平）
+# CI-PATCH: 目录扁平化后，SDL 直接位于 cxx 根；bgfx 家族已改 cmake 构建，
+# 收敛到 bgfx.cmake/（bgfx.cmake/{bgfx,bx,bimg,...}，与 bgfx_build.py 的 SRC_DIR 同源）
 SDL_DIR  = os.path.join(CXX_ROOT, "SDL")
-BGFX_DIR = os.path.join(CXX_ROOT, "bgfx")
-BX_DIR   = os.path.join(CXX_ROOT, "bx")
-BIMG_DIR = os.path.join(CXX_ROOT, "bimg")
+BGFX_DIR = os.path.join(CXX_ROOT, "bgfx.cmake", "bgfx")
+BX_DIR   = os.path.join(CXX_ROOT, "bgfx.cmake", "bx")
+BIMG_DIR = os.path.join(CXX_ROOT, "bgfx.cmake", "bimg")
 
 # cimgui / 后端源文件（相对 SCRIPT_DIR）
 IMGUI_SOURCES = [
