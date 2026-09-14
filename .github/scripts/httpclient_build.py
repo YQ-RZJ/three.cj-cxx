@@ -828,7 +828,11 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
 
     # 宏裁剪
     if not ctx.get("no_trim"):
-        config_opts.append(CONFIG_SLIM)
+        # CI-PATCH: CONFIG_SLIM 必须按空白拆成多个独立参数（extend + split）。
+        # 原实现 append 成单个带空格的参数：WINDOWS 走 bash -c '%s' 拼接时被
+        # bash 重新分词侥幸可用；macOS/Linux 走 subprocess 列表直传，OpenSSL
+        # 收到引号包裹的整串，报 "Unsupported options: no-weak-ssl-ciphers ..."。
+        config_opts.extend(CONFIG_SLIM.split())
         # 根据模式添加
         if mode == "debug":
             config_opts.append("--debug")

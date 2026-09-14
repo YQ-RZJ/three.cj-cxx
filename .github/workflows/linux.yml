@@ -64,14 +64,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y g++-aarch64-linux-gnu gcc-aarch64-linux-gnu
           # bgfx 的 CMakeLists 在 Linux 上 find_package(X11/OpenGL REQUIRED)，
-          # arm64 交叉需装 :arm64 多架构运行时库（头文件与 x86_64 共享）
+          # arm64 交叉需装 :arm64 多架构运行时库（头文件与 x86_64 共享）。
+          # 依赖链根是 libc6:arm64（libx11-6/libgl1 依赖它），gcc-*-aarch64-
+          # linux-gnu 自带的 libc6-dev-arm64-cross 不满足 dpkg 多架构依赖。
           sudo dpkg --add-architecture arm64
           sudo sed -i 's/^deb http/deb [arch=amd64] http/' /etc/apt/sources.list
           {
             printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s main universe\n' "$(lsb_release -cs)"
           } | sudo tee /etc/apt/sources.list.d/arm64.list >/dev/null
           sudo apt-get update || true
-          sudo apt-get install -y libx11-dev:arm64 libgl1-mesa-dev:arm64 || \
+          sudo apt-get install -y libc6:arm64 libx11-6:arm64 libx11-dev:arm64 \
+            libgl1:arm64 libgl1-mesa-dev:arm64 || \
             echo "[WARN] arm64 X11/GL 多架构包安装失败（bgfx_build.py 的预置变量探测会跳过）"
 
       - name: Build all libraries
