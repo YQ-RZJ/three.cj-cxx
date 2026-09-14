@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       arches:
-        description: "架构，逗号分隔：arm64-v8a（默认仅 arm64-v8a）"
+        description: "架构，逗号分隔：arm64-v8a（真机）/ x86_64（模拟器）。iOS 模拟器支持 x86_64 与 arm64；x86_64 自动走 iphonesimulator SDK"
         required: false
         default: "arm64-v8a"
       modes:

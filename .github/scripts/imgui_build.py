@@ -160,9 +160,13 @@ SHARED_SYS_LIBS = {
 }
 
 # Apple 平台 shared 构建所需 framework（与 three/cjpm.toml darwin target 对齐）
-SHARE_APPLE_FRAMEWORKS = [
-    "Cocoa", "IOKit", "CoreVideo", "CoreFoundation", "OpenGL",
-]
+# CI-PATCH: Cocoa/OpenGL 是 macOS 专属——iOS 链接 Cocoa 直接
+# "framework not found"（iOS job 实测），按平台拆分：OSX 用 Cocoa+OpenGL，
+# IOS 用 UIKit+OpenGLES。
+SHARE_APPLE_FRAMEWORKS = {
+    "OSX": ["Cocoa", "IOKit", "CoreVideo", "CoreFoundation", "OpenGL"],
+    "IOS": ["UIKit", "CoreVideo", "CoreFoundation", "OpenGLES"],
+}
 
 LIB_EXTENSIONS    = (".a", ".lib", ".so", ".dll", ".dylib", ".bc", ".wasm")
 HEADER_EXTENSIONS = (".h", ".hpp")
@@ -725,6 +729,31 @@ def toolchain_cfg(platform, arch, toolchain, host, ctx, args):
                     "-DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY",
                 ]
 
+    elif platform in ("LINUX", "BSD"):
+        # CI-PATCH: LINUX/BSD 分支此前缺失——cfg 直通返回，arm64 交叉时用
+        # 宿主 x86_64 编译器，链接 arm64 的 libSDL3.so 报
+        # "file in wrong format"（linux job 实测，与 bgfx/sdl/openssl 同款缺口）。
+        # 条件只看 arch——CI 是 LINUX 主机编 LINUX arm64（host==platform），
+        # 跨的是架构不是系统，不能拿 host != platform 当判据。
+        if arch == "arm64-v8a":
+            import os as _os
+            prefix = "aarch64-linux-gnu" if platform == "LINUX" else "aarch64-unknown-freebsd"
+            cc = "/usr/bin/%s-gcc" % prefix
+            cxx = "/usr/bin/%s-g++" % prefix
+            if _os.path.isfile(cc):
+                cfg += ["-DCMAKE_C_COMPILER=" + cc,
+                        "-DCMAKE_CXX_COMPILER=" + cxx,
+                        "-DCMAKE_SYSTEM_NAME=Linux",
+                        "-DCMAKE_SYSTEM_PROCESSOR=aarch64"]
+                # 宿主库搜索会撞 x86_64 库，禁止搜索宿主环境
+                cfg += [
+                    "-DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER",
+                    "-DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY",
+                    "-DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY",
+                ]
+            else:
+                print("  [WARN] 未找到 %s-gcc，回退宿主工具链（arm64 链接将失败）" % prefix)
+
     elif platform == "ANDROID":
         tc_file = probe_ndk_toolchain(ctx["ndk"])
         abi = "arm64-v8a" if arch == "arm64-v8a" else "x86_64"
@@ -914,10 +943,11 @@ def generate_cmake(platform, mode, arch, libtype, build_dir, deps_dirs=None):
             link_items = ['"-Wl,--start-group"', "${IMGUI_DEPS_LIBS}", '"-Wl,--end-group"']
         link_items += sys_libs
         if apple:
-            for fw in SHARE_APPLE_FRAMEWORKS:
-                # CI-PATCH: -framework 与框架名必须合成单个 "-framework Cocoa"
-                # 项——拆成两项时 CMake 会把裸名 Cocoa 当普通库转成 -lCocoa
-                # （macOS job 实测链接行出现 "-framework -lCocoa"）。
+            # CI-PATCH: 框架清单按平台取（SHARE_APPLE_FRAMEWORKS 已拆分
+            # OSX/IOS）——iOS 没有 Cocoa/OpenGL（macOS 专属），必须用
+            # UIKit/OpenGLES；-framework 与框架名合成单项防止 CMake 把
+            # 裸名转成 -lXXX（macOS job 实测教训）。
+            for fw in SHARE_APPLE_FRAMEWORKS[platform]:
                 link_items.append('"-framework %s"' % fw)
         lines.append("    target_link_libraries(%s PRIVATE %s)"
                      % (LIB_BASENAME, " ".join(link_items)))

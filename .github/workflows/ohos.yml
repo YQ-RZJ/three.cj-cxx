@@ -73,8 +73,19 @@ jobs:
           if [ -n "$LINUX_TGZ" ]; then tar -xzf "$LINUX_TGZ"; fi
           NATIVE_DIR=$(find . -type d -name native | grep -i linux | head -1)
           if [ -z "$NATIVE_DIR" ]; then NATIVE_DIR=$(find . -type d -name native | head -1); fi
+          # CI-PATCH: NATIVE_DIR 为空时 `cp -r "$NATIVE_DIR"/*` 会退化为
+          # `cp -r /*`——把 /boot /etc /dev 整个根文件系统拷进
+          # ~/ohos-sdk-native（CI 实测刷屏 Permission denied 后 job 失败）。
+          # 必须在空值时立即报错并列出实际目录结构，绝不带空变量继续。
+          if [ -z "$NATIVE_DIR" ]; then
+            echo "[ERROR] 解包后未找到 native 目录，实际结构如下："
+            find . -maxdepth 3 -type d | head -30
+            exit 1
+          fi
+          echo "NATIVE_DIR=$NATIVE_DIR"
           mkdir -p ~/ohos-sdk-native
-          cp -r "$NATIVE_DIR"/* ~/ohos-sdk-native/
+          # /. 结尾拷贝目录内容本身，且此时 NATIVE_DIR 已保证非空
+          cp -r "$NATIVE_DIR"/. ~/ohos-sdk-native/
           echo "SDK native contents:" && ls ~/ohos-sdk-native | head
 
       - name: Build all libraries (incl. SDL3 shared for static packaging)
