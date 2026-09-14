@@ -111,6 +111,32 @@ def arch_for_script(script: str, arch: str) -> str:
     return alt if alt and alt in sarches else arch
 
 
+def salvage_zips(scripts_dir: str, arch: str):
+    """CI-PATCH3: 每组跑完立即把新产出的 zip 挪进清理范围外的暂存区。
+
+    8 个组的 DIST_DIR 都指向共享的 .github/scripts/dist/，下一组的
+    --clean 会 rmtree 它——先跑组的 zip 必须在下一组启动前抢救出来
+    （macOS 实测：最终归包只剩最后两组的产物）。按架构分目录暂存
+    （ci_deps/zips/<arch>/），归包时按当前架构收。"""
+    import glob as _glob
+    import shutil as _shutil
+    src_dir = os.path.join(scripts_dir, "dist")
+    if not os.path.isdir(src_dir):
+        return
+    dst_dir = os.path.join(CXX_ROOT, "ci_deps", "zips", arch)
+    os.makedirs(dst_dir, exist_ok=True)
+    for zp in _glob.glob(os.path.join(src_dir, "*.zip")):
+        # 保守过滤：文件名含其它架构标记的 zip 不属于本轮（防多架构
+        # 残留混入），无架构标记或含当前架构标记的都收
+        base = os.path.basename(zp)
+        other = {"arm64-v8a": "x86_64", "x86_64": "arm64-v8a"}.get(arch)
+        if other and other in base and arch not in base:
+            continue
+        _shutil.move(zp, os.path.join(dst_dir, base))
+    n = len(_glob.glob(os.path.join(dst_dir, "*.zip")))
+    print(f"[ci] salvage zips -> ci_deps/zips/{arch}/ (累计 {n} 个)", flush=True)
+
+
 def stage_imgui_deps(cxx_root: str, arch: str) -> str:
     """收集本轮已编出的 SDL3/bgfx 等库文件到暂存目录，供 imgui shared
     构建作为 --deps-lib 使用（imgui 排在 sdl/bgfx 之后编译）。
@@ -263,16 +289,23 @@ def main():
         # 暂存目录在 cxx 根下 ci_deps/（不在各脚本 --clean 的范围内）。
         if group != "imgui":
             stage_imgui_deps(CXX_ROOT, args.arch)
+        # CI-PATCH3: 每组跑完立即抢救 zip —— 8 组的 DIST_DIR 都是共享的
+        # .github/scripts/dist/，下一组 --clean 会 rmtree 它（macOS 实测：
+        # 最终 zip 只剩最后两组的产物）。挪进清理范围外的 ci_deps/zips/
+        # 累计暂存，归包时从这里收。
+        salvage_zips(HERE, args.arch)
 
     # ---- 归包：dist/<os>/<arch>/{static,shared} ----
     # CI-PATCH: 方案 A——从各组 *_build.py 产出的 zip 归包（zip 在各组跑完
     # 即持久化，不受后续组 --clean 影响；旧 --src 方式在多组互删后只剩
-    # 最后一组的产物，归包结果残缺）。zip 落点：8 组在 .github/scripts/dist/，
-    # bgfx 在 cxx/dist/（其 DIST_DIR=ROOT/dist）。
+    # 最后一组的产物，归包结果残缺）。zip 源：ci_deps/zips/ 暂存区（每组
+    # 跑完立即抢救）+ bgfx 的 cxx/dist/（其 DIST_DIR=ROOT/dist，无共享
+    # 清理问题，兜底直收）。
+    salvage_dir = os.path.join(CXX_ROOT, "ci_deps", "zips")
     collect = [sys.executable, os.path.join(HERE, "collect_dist.py"),
                "--os", os_dir, "--arch", args.arch,
                "--out", DIST_ROOT, "--clean",
-               "--zip", os.path.join(HERE, "dist", "*.zip"),
+               "--zip", os.path.join(salvage_dir, "*.zip"),
                "--zip", os.path.join(DIST_ROOT, "*.zip")]
     # 兼容保留：目录源作为兜底（zip 缺失的组若目录还在则仍能收集）
     for d in COLLECT_SRC_DIRS:
