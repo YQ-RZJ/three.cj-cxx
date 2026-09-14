@@ -461,6 +461,10 @@ def cmake_config(platform, mode, arch, libtype, toolchain, host, ctx):
         return cache, env_over
 
     # ---- LINUX / BSD：本机原生；arm64 时注入 aarch64-linux-gnu 交叉工具链 ----
+    # CI-PATCH: bgfx.cmake 的 BGFX_WITH_WAYLAND 在 Linux 上默认 ON
+    # （cmake_dependent_option），链接 -lwayland-egl——交叉时 arm64 版
+    # wayland 库未安装必然失败；产物走 X11/OpenGL 后端，直接关闭。
+    cache["BGFX_WITH_WAYLAND"] = "OFF"
     if platform == "LINUX" and arch == "arm64-v8a":
         cc = "/usr/bin/aarch64-linux-gnu-gcc"
         cxx = "/usr/bin/aarch64-linux-gnu-g++"

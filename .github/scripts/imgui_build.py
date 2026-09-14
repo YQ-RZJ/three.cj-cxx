@@ -728,6 +728,12 @@ def toolchain_cfg(platform, arch, toolchain, host, ctx, args):
     elif platform == "ANDROID":
         tc_file = probe_ndk_toolchain(ctx["ndk"])
         abi = "arm64-v8a" if arch == "arm64-v8a" else "x86_64"
+        # CI-PATCH: bx 的参考实现 SIMD 头（simd*_ref.inl）在 NDK r23 的
+        # clang 12 下触发 -Winvalid-constexpr（constexpr 函数在对应路径
+        # 永远不会是常量表达式），且该告警默认按错误处理——4 处直接
+        # 编译失败。压制该告警（不影响运行时行为，simd 参考实现本就
+        # 是标量回退路径）。
+        cfg += ["-DCMAKE_CXX_FLAGS=-Wno-invalid-constexpr"]
         cfg += [
             "-DCMAKE_TOOLCHAIN_FILE=" + tc_file,
             "-DANDROID_ABI=" + abi,
@@ -893,11 +899,21 @@ def generate_cmake(platform, mode, arch, libtype, build_dir, deps_dirs=None):
         lines.append("    target_link_libraries(%s PRIVATE ${IMGUI_DEPS_LIBS} %s)"
                      % (LIB_BASENAME, " ".join(sys_libs)))
         lines.append("else()")
-        link_items = ['"-Wl,--start-group"', "${IMGUI_DEPS_LIBS}", '"-Wl,--end-group"']
+        # CI-PATCH: --start-group/--end-group 是 GNU ld 专属旗标，Apple 的
+        # ld 不认识（macOS job 实测 "ld: unknown options: --start-group
+        # --end-group"）。Apple 上依赖库顺序问题由 -undefined dynamic_lookup
+        # 与框架链接自然规避，直接平铺依赖库即可。
+        if apple:
+            link_items = ["${IMGUI_DEPS_LIBS}"]
+        else:
+            link_items = ['"-Wl,--start-group"', "${IMGUI_DEPS_LIBS}", '"-Wl,--end-group"']
         link_items += sys_libs
         if apple:
             for fw in SHARE_APPLE_FRAMEWORKS:
-                link_items += ['"-framework"', '"%s"' % fw]
+                # CI-PATCH: -framework 与框架名必须合成单个 "-framework Cocoa"
+                # 项——拆成两项时 CMake 会把裸名 Cocoa 当普通库转成 -lCocoa
+                # （macOS job 实测链接行出现 "-framework -lCocoa"）。
+                link_items.append('"-framework %s"' % fw)
         lines.append("    target_link_libraries(%s PRIVATE %s)"
                      % (LIB_BASENAME, " ".join(link_items)))
         lines.append("endif()")
