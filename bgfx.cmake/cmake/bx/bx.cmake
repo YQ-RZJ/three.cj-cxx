@@ -88,10 +88,10 @@ elseif(UNIX)
 endif()
 
 # OpenHarmony (OHOS NDK): the compiler target is *-linux-ohos so __linux__ is defined
-# and BX_PLATFORM_LINUX turns on automatically; additionally flag OPHM so the
+# and BX_PLATFORM_LINUX turns on automatically; additionally flag OHOS so the
 # OHOS-specific code paths (hilog output, EGL fallbacks) are enabled.
-if(BX_PLATFORM_OPHM)
-	target_compile_definitions(bx PUBLIC BX_PLATFORM_OPHM=1)
+if(BX_PLATFORM_OHOS)
+	target_compile_definitions(bx PUBLIC BX_PLATFORM_OHOS=1)
 endif()
 
 # Android NDK clang: bx's reference SIMD implementations contain constexpr
@@ -142,7 +142,7 @@ elseif(APPLE)
 	find_library(FOUNDATION_LIBRARY Foundation)
 	mark_as_advanced(FOUNDATION_LIBRARY)
 	target_link_libraries(bx PUBLIC ${FOUNDATION_LIBRARY})
-elseif(BX_PLATFORM_OPHM)
+elseif(BX_PLATFORM_OHOS)
 	# OpenHarmony (musl): pthread/dl/rt live in libc; no separate -lpthread/-lrt.
 	# hilog is needed for OH_LOG_Print in debug.cpp.
 	find_library(HILOG_LIBRARY hilog_ndk.z)

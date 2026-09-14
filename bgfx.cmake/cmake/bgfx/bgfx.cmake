@@ -92,14 +92,14 @@ if(NOT ${BGFX_CONFIG_DEFAULT_MAX_ENCODERS} STREQUAL "")
 	)
 endif()
 
-if(BGFX_WITH_WAYLAND AND NOT BX_PLATFORM_OPHM)
+if(BGFX_WITH_WAYLAND AND NOT BX_PLATFORM_OHOS)
 	target_compile_definitions(bgfx PRIVATE "WL_EGL_PLATFORM=1")
 	target_link_libraries(bgfx PRIVATE wayland-egl)
 endif()
 
 # OpenHarmony (OHOS NDK): no X11/Wayland; render through EGL + GLES 3.0
-# (matches the old-version xmake customization: EMSCRIPTEN/OPHM default OpenGL).
-if(BX_PLATFORM_OPHM)
+# (matches the old-version xmake customization: EMSCRIPTEN/OHOS default OpenGL).
+if(BX_PLATFORM_OHOS)
 	target_compile_definitions(bgfx PRIVATE
 		BGFX_CONFIG_RENDERER_OPENGLES=30
 		BGFX_CONFIG_RENDERER_OPENGLES_MIN_VERSION=30
@@ -197,7 +197,7 @@ if(UNIX
    AND NOT APPLE
    AND NOT EMSCRIPTEN
    AND NOT ANDROID
-   AND NOT BX_PLATFORM_OPHM
+   AND NOT BX_PLATFORM_OHOS
 )
 	find_package(X11 REQUIRED)
 	find_package(OpenGL REQUIRED)
