@@ -7,12 +7,12 @@ JoltPhysics4cj 全平台自动交叉编译 + 打包脚本（JoltPhysics 版）
 
   - 模式:   debug / release
   - 架构:   x86_64 / arm64-v8a
-  - 平台:   LINUX WINDOWS ANDROID OPHM BSD EMSCRIPTEN IOS OSX
+  - 平台:   LINUX WINDOWS ANDROID OHOS BSD EMSCRIPTEN IOS OSX
   - 工具链: msvc / mingw / ndk / ohos / emsdk / xcode / native
   - 库类型: static / shared（对应 CMake -DJPH_BUILD_SHARED_LIBS）
 
 说明：
-  OPHM = OpenHarmony / HarmonyOS：优先使用 DevEco NDK 自带的
+  OHOS = OpenHarmony / HarmonyOS：优先使用 DevEco NDK 自带的
   ohos.toolchain.cmake；若无则退回 clang --target=*-linux-ohos
   --sysroot=<sdk>/sysroot 的交叉编译方式。
 
@@ -25,7 +25,7 @@ JoltPhysics4cj 全平台自动交叉编译 + 打包脚本（JoltPhysics 版）
      mingw，优先 msvc，失败后自动回退 mingw；
   3. LINUX / BSD 平台使用本机原生编译器（clang 优先）；
   4. 需要 NDK / emsdk / OHOS SDK 的交叉编译平台（ANDROID、
-     EMSCRIPTEN、OPHM、以及非 Windows 主机上的 WINDOWS 交叉编译），
+     EMSCRIPTEN、OHOS、以及非 Windows 主机上的 WINDOWS 交叉编译），
      会要求开发者提供 SDK 路径（命令行参数 > 环境变量 > 交互询问）
      后再推进编译，无法提供则告警跳过；
   5. IOS / OSX 必须在其自身系统（macOS）上编译：脚本检测到自身
@@ -87,7 +87,7 @@ LOG_DIR       = os.path.join(DIST_DIR, "logs")
 PROJECT_ROOT  = os.path.dirname(SCRIPT_DIR)                  # 项目根目录（含 src/ test/ libs/）
 LIBS_DIR      = os.path.join(PROJECT_ROOT, "libs")           # 仓颉侧链接用的静态/动态库输出目录
 
-ALL_PLATFORMS = ["LINUX", "WINDOWS", "ANDROID", "OPHM", "BSD", "EMSCRIPTEN", "IOS", "OSX"]
+ALL_PLATFORMS = ["LINUX", "WINDOWS", "ANDROID", "OHOS", "BSD", "EMSCRIPTEN", "IOS", "OSX"]
 ALL_MODES     = ["debug", "release"]
 ALL_ARCHES    = ["x86_64", "arm64-v8a"]
 ALL_LIBTYPES  = ["static", "shared"]
@@ -137,7 +137,7 @@ def parse_args():
     )
     ap.add_argument("--platforms", default=",".join(ALL_PLATFORMS),
                     help="编译平台清单，逗号分隔，可选: " + ",".join(ALL_PLATFORMS)
-                         + "（默认全部，OPHM=OpenHarmony/HarmonyOS）")
+                         + "（默认全部，OHOS=OpenHarmony/HarmonyOS）")
     ap.add_argument("--modes", default=",".join(ALL_MODES),
                     help="编译模式清单，逗号分隔: debug,release（默认全部）")
     ap.add_argument("--arches", default=",".join(ALL_ARCHES),
@@ -147,7 +147,7 @@ def parse_args():
     ap.add_argument("--ndk", default=None,
                     help="Android NDK 路径（或环境变量 ANDROID_NDK_HOME / ANDROID_NDK_ROOT）")
     ap.add_argument("--ohos-sdk", default=None,
-                    help="HarmonyOS / OpenHarmony NDK 路径（OPHM 平台，或环境变量 OHOS_SDK）")
+                    help="HarmonyOS / OpenHarmony NDK 路径（OHOS 平台，或环境变量 OHOS_SDK）")
     ap.add_argument("--emsdk", default=None,
                     help="Emscripten SDK 路径（或环境变量 EMSDK）")
     ap.add_argument("--mingw", default=None,
@@ -246,7 +246,7 @@ def resolve_ndk(args):
 
 
 def resolve_ohos_sdk(args):
-    """解析 HarmonyOS / OpenHarmony NDK 路径（OPHM 平台需要）"""
+    """解析 HarmonyOS / OpenHarmony NDK 路径（OHOS 平台需要）"""
     v = (args.ohos_sdk
          or os.environ.get("OHOS_SDK")
          or os.environ.get("OHOS_NDK_HOME"))
@@ -483,7 +483,7 @@ def can_build(platform, host, ctx):
         if ctx.get("ndk"):
             return True, ""
         return False, "缺少 NDK 路径（--ndk / ANDROID_NDK_HOME / 交互提供）"
-    if platform == "OPHM":
+    if platform == "OHOS":
         if ctx.get("ohos"):
             return True, ""
         return False, "缺少 OpenHarmony (OHOS) NDK 路径（--ohos-sdk / OHOS_SDK / 交互提供）"
@@ -578,7 +578,7 @@ def toolchain_cfg(platform, arch, toolchain, host, ctx, args):
             "-DANDROID_LD=lld",
         ]
 
-    elif platform == "OPHM":
+    elif platform == "OHOS":
         sdk = ctx["ohos"]
         tc_file, target = probe_ohos(sdk, arch)
         if tc_file:
@@ -910,10 +910,10 @@ def main():
         ctx["ndk"] = resolve_ndk(args)
         if not ctx["ndk"]:
             print("  [WARN] ANDROID 平台因缺少 NDK 路径被跳过")
-    if "OPHM" in platforms:
+    if "OHOS" in platforms:
         ctx["ohos"] = resolve_ohos_sdk(args)
         if not ctx["ohos"]:
-            print("  [WARN] OPHM 平台因缺少 OHOS SDK 路径被跳过")
+            print("  [WARN] OHOS 平台因缺少 OHOS SDK 路径被跳过")
     if "EMSCRIPTEN" in platforms:
         ctx["emsdk"] = resolve_emsdk(args)
         if not ctx["emsdk"]:

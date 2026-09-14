@@ -10,31 +10,31 @@ requireCJLib 全平台自动交叉编译 + 打包脚本
 
   - 模式:   debug / release
   - 架构:   x86_64 / arm64-v8a
-  - 平台:   WINDOWS LINUX ANDROID OPHM IOS OSX
+  - 平台:   WINDOWS LINUX ANDROID OHOS IOS OSX
   - 工具链: msvc / mingw / ndk / ohos / xcode / native
   - 库类型: static / shared
 
 说明：
-  OPHM = OpenHarmony / HarmonyOS：优先使用 DevEco NDK 自带的
+  OHOS = OpenHarmony / HarmonyOS：优先使用 DevEco NDK 自带的
   ohos.toolchain.cmake；若无则退回 clang --target=*-linux-ohos
   --sysroot=<sdk>/sysroot 的交叉编译方式。
 
   requireCJLib-ark (NAPI 变体) 需要 OHOS NDK 的 node_api.h 头文件，
-  仅在 OPHM 平台编译时有意义；其他平台仅编译 requireCJLib (C FFI 变体)。
+  仅在 OHOS 平台编译时有意义；其他平台仅编译 requireCJLib (C FFI 变体)。
 
 行为约定：
   1. 无参运行时尝试编译所有"当前能编译"的平台；
   2. WINDOWS 主机优先 msvc，失败回退 mingw；
   3. LINUX 使用本机原生编译器（clang 优先）；
-  4. ANDROID / OPHM 需要 NDK 路径（命令行 > 环境变量 > 交互询问）；
+  4. ANDROID / OHOS 需要 NDK 路径（命令行 > 环境变量 > 交互询问）；
   5. IOS / OSX 必须在 macOS 上编译。
 
 用法示例：
   python build.py                                  # 尝试编译所有可编译平台
-  python build.py --platforms OPHM                 # 只编 OpenHarmony
+  python build.py --platforms OHOS                 # 只编 OpenHarmony
   python build.py --platforms ANDROID,WINDOWS      # 只编指定平台
   python build.py --platforms ANDROID --ndk D:/ndk
-  python build.py --platforms OPHM --ohos-sdk D:/OpenHarmony/native
+  python build.py --platforms OHOS --ohos-sdk D:/OpenHarmony/native
   python build.py --modes release --arches x86_64
   python build.py --libtype shared                 # 只编动态库
   python build.py --batch                          # 非交互（不询问，缺 SDK 即跳过）
@@ -90,7 +90,7 @@ FFI_SRC_DIR      = os.path.join(SCRIPT_DIR, "requireCJLib")
 NAPI_SRC_DIR     = os.path.join(SCRIPT_DIR, "requireCJLib-ark")
 DLBRIDGE_SRC_DIR = os.path.join(SCRIPT_DIR, "dlbridge")
 
-ALL_PLATFORMS = ["WINDOWS", "LINUX", "ANDROID", "OPHM", "IOS", "OSX"]
+ALL_PLATFORMS = ["WINDOWS", "LINUX", "ANDROID", "OHOS", "IOS", "OSX"]
 ALL_MODES     = ["debug", "release"]
 ALL_ARCHES    = ["x86_64", "arm64-v8a"]
 ALL_LIBTYPES  = ["static", "shared"]
@@ -139,7 +139,7 @@ def parse_args():
     )
     ap.add_argument("--platforms", default=",".join(ALL_PLATFORMS),
                     help="编译平台清单，逗号分隔，可选: " + ",".join(ALL_PLATFORMS)
-                         + "（默认全部，OPHM=OpenHarmony/HarmonyOS）")
+                         + "（默认全部，OHOS=OpenHarmony/HarmonyOS）")
     ap.add_argument("--modes", default=",".join(ALL_MODES),
                     help="编译模式清单，逗号分隔: debug,release（默认全部）")
     ap.add_argument("--arches", default=",".join(ALL_ARCHES),
@@ -149,7 +149,7 @@ def parse_args():
     ap.add_argument("--ndk", default=None,
                     help="Android NDK 路径（或环境变量 ANDROID_NDK_HOME / ANDROID_NDK_ROOT）")
     ap.add_argument("--ohos-sdk", default=None,
-                    help="HarmonyOS / OpenHarmony NDK 路径（OPHM 平台，或环境变量 OHOS_SDK）")
+                    help="HarmonyOS / OpenHarmony NDK 路径（OHOS 平台，或环境变量 OHOS_SDK）")
     ap.add_argument("--mingw", default=None,
                     help="mingw-w64 工具链目录（也可用环境变量 MINGW / LLVM_MINGW）")
     ap.add_argument("--android-api", type=int, default=24,
@@ -459,7 +459,7 @@ def can_build(platform, host, ctx):
         if ctx.get("ndk"):
             return True, ""
         return False, "缺少 NDK 路径（--ndk / ANDROID_NDK_HOME / 交互提供）"
-    if platform == "OPHM":
+    if platform == "OHOS":
         if ctx.get("ohos"):
             return True, ""
         return False, "缺少 OpenHarmony (OHOS) NDK 路径（--ohos-sdk / OHOS_SDK / 交互提供）"
@@ -541,7 +541,7 @@ def toolchain_cfg(platform, arch, toolchain, host, ctx, args):
             "-DANDROID_LD=lld",
         ]
 
-    elif platform == "OPHM":
+    elif platform == "OHOS":
         sdk = ctx["ohos"]
         tc_file, target = probe_ohos(sdk, arch)
         if tc_file:
@@ -595,7 +595,7 @@ def cmake_config(platform, mode, arch, libtype, toolchain, host, ctx, args):
     ]
 
     # OHOS NDK 路径（NAPI 变体需要 node_api.h）
-    if platform == "OPHM" and ctx.get("ohos"):
+    if platform == "OHOS" and ctx.get("ohos"):
         cfg.append("-DOHOS_NDK=" + ctx["ohos"].replace("\\", "/"))
 
     # 仓颉运行时库目录（动态库链接时需要）
@@ -709,7 +709,7 @@ def build_one(platform, mode, arch, libtype, toolchain, host, args, ctx, log_pat
             env["PATH"] = mbin + os.pathsep + env["PATH"]
 
     # CI-PATCH: --libs 选择性构建（默认全量）：ffi/napi/dlbridge 三段独立过滤
-    # （napi 仅 OPHM 编译，不受 --libs 控制）
+    # （napi 仅 OHOS 编译，不受 --libs 控制）
     wanted = parse_libs_arg(args.libs, _ALLOWED_LIBS, "cjbridge")
     if "ffi" not in wanted:
         print("  [skip] requireCJLib (C FFI)（--libs 未包含）")
@@ -723,8 +723,8 @@ def build_one(platform, mode, arch, libtype, toolchain, host, args, ctx, log_pat
         return False
 
     # 2) 编译 requireCJLib-ark (NAPI 变体)
-    #    NAPI 变体需要 OHOS NDK 的 node_api.h，仅 OPHM 平台编译
-    if not args.skip_napi and platform == "OPHM":
+    #    NAPI 变体需要 OHOS NDK 的 node_api.h，仅 OHOS 平台编译
+    if not args.skip_napi and platform == "OHOS":
         if "napi" not in wanted:
             print("  [skip] requireCJLib-ark (NAPI)（--libs 未包含）")
         else:
@@ -891,10 +891,10 @@ def main():
         ctx["ndk"] = resolve_ndk(args)
         if not ctx["ndk"]:
             print("  [WARN] ANDROID 平台因缺少 NDK 路径被跳过")
-    if "OPHM" in platforms:
+    if "OHOS" in platforms:
         ctx["ohos"] = resolve_ohos_sdk(args)
         if not ctx["ohos"]:
-            print("  [WARN] OPHM 平台因缺少 OHOS SDK 路径被跳过")
+            print("  [WARN] OHOS 平台因缺少 OHOS SDK 路径被跳过")
 
     dist_dir = os.path.abspath(args.dist)
     results = []

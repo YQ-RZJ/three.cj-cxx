@@ -13,14 +13,14 @@ tracy4cj 全平台自动交叉编译 + 打包脚本
       include/ = tracy/public 全部头文件（TracyC.h + client/ + common/ + tracy/）
       lib/     = 静态库
 
-  - 平台:   WINDOWS LINUX ANDROID OPHM IOS OSX
+  - 平台:   WINDOWS LINUX ANDROID OHOS IOS OSX
   - 架构:   x86_64 / arm64
   - 模式:   release / debug
   - 工具链: WINDOWS 主机优先 mingw（mingw-w64 gcc 与 llvm-mingw clang 均支持），
             回退 msvc；其余平台 ndk / ohos / clang native / xcode
 
 说明：
-  OPHM = OpenHarmony / HarmonyOS：使用 DevEco NDK 的 clang
+  OHOS = OpenHarmony / HarmonyOS：使用 DevEco NDK 的 clang
   --target=*-linux-ohos --sysroot=<sdk>/sysroot 交叉编译。
 
 行为约定：
@@ -29,7 +29,7 @@ tracy4cj 全平台自动交叉编译 + 打包脚本
      llvm-mingw（clang 后端）与 mingw-w64（gcc 后端）自动识别并使用各自兼容参数；
   3. LINUX / OSX 使用本机 clang（回退 gcc）；
   4. ANDROID 需要 NDK 路径（命令行 > 环境变量 > 交互询问）；
-  5. OPHM 需要 OHOS SDK 路径（命令行 > 环境变量 > 交互询问）；
+  5. OHOS 需要 OHOS SDK 路径（命令行 > 环境变量 > 交互询问）；
   6. IOS / OSX 必须在 macOS 上编译。
 
 用法示例：
@@ -83,7 +83,7 @@ TRACY_INC  = TRACY_PUB                                            # -I 路径
 OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output")
 DIST_DIR   = os.path.join(SCRIPT_DIR, "dist")
 
-ALL_PLATFORMS = ["WINDOWS", "LINUX", "ANDROID", "OPHM", "IOS", "OSX"]
+ALL_PLATFORMS = ["WINDOWS", "LINUX", "ANDROID", "OHOS", "IOS", "OSX"]
 ALL_MODES     = ["release", "debug"]
 ALL_ARCHES    = ["x86_64", "arm64"]
 
@@ -168,7 +168,7 @@ def parse_args():
     )
     ap.add_argument("--platforms", default=",".join(ALL_PLATFORMS),
                     help="编译平台清单，逗号分隔: " + ",".join(ALL_PLATFORMS)
-                         + "（默认全部，OPHM=OpenHarmony/HarmonyOS）")
+                         + "（默认全部，OHOS=OpenHarmony/HarmonyOS）")
     ap.add_argument("--modes", default=",".join(ALL_MODES),
                     help="编译模式清单，逗号分隔: release,debug（默认全部）")
     ap.add_argument("--arches", default=",".join(ALL_ARCHES),
@@ -176,7 +176,7 @@ def parse_args():
     ap.add_argument("--ndk", default=None,
                     help="Android NDK 路径（或环境变量 ANDROID_NDK_HOME / ANDROID_NDK_ROOT）")
     ap.add_argument("--ohos-sdk", default=None,
-                    help="HarmonyOS / OpenHarmony NDK 路径（OPHM 平台，或环境变量 OHOS_SDK）")
+                    help="HarmonyOS / OpenHarmony NDK 路径（OHOS 平台，或环境变量 OHOS_SDK）")
     ap.add_argument("--mingw", default=None,
                     help="mingw-w64 / llvm-mingw 工具链目录（也可用环境变量 MINGW / LLVM_MINGW）")
     ap.add_argument("--toolchain", default=None, choices=["mingw", "msvc"],
@@ -423,7 +423,7 @@ def can_build(platform, host, ctx):
         if ctx.get("ndk"):
             return True, ""
         return False, "缺少 NDK 路径（--ndk / ANDROID_NDK_HOME / 交互提供）"
-    if platform == "OPHM":
+    if platform == "OHOS":
         if ctx.get("ohos"):
             return True, ""
         return False, "缺少 OpenHarmony (OHOS) SDK 路径（--ohos-sdk / OHOS_SDK / 交互提供）"
@@ -500,7 +500,7 @@ def compile_cmd(platform, mode, arch, ctx, args):
         flags = ["-std=c++17", "-fno-omit-frame-pointer", "-fPIC", "-pthread"]
         # CI-PATCH: find_tool 返回字符串，必须包成 [clang] 再拼列表——
         # 直接 clang + flags 抛 'can only concatenate str (not "list")
-        # to str'（linux arm64 job 实测）。与 ANDROID/OPHM 分支的
+        # to str'（linux arm64 job 实测）。与 ANDROID/OHOS 分支的
         # [cxx] + flags 写法对齐。
         return [clang] + flags + opt + common_defs, "ar", False
 
@@ -517,7 +517,7 @@ def compile_cmd(platform, mode, arch, ctx, args):
         ar = os.path.join(os.path.dirname(cxx), "llvm-ar" + exe_suffix())
         return [cxx] + flags + common_defs + ["-O2" if mode == "release" else "-O0"], ar, False
 
-    if platform == "OPHM":
+    if platform == "OHOS":
         sdk = ctx["ohos"]
         cxx = ohos_clang(arch, sdk)
         if not cxx:
@@ -771,10 +771,10 @@ def main():
         ctx["ndk"] = resolve_ndk(args)
         if not ctx["ndk"]:
             print("  [WARN] ANDROID 平台因缺少 NDK 路径被跳过")
-    if "OPHM" in platforms:
+    if "OHOS" in platforms:
         ctx["ohos"] = resolve_ohos_sdk(args)
         if not ctx["ohos"]:
-            print("  [WARN] OPHM 平台因缺少 OHOS SDK 路径被跳过")
+            print("  [WARN] OHOS 平台因缺少 OHOS SDK 路径被跳过")
 
     dist_dir = os.path.abspath(args.dist)
     results = []   # (name, status, note)

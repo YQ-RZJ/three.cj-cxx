@@ -9,14 +9,14 @@ imgui4cj 全平台自动交叉编译 + 打包脚本
 打包时另存 libimgui.a 副本于 lib_a/，与 bgfx4cj 的约定一致）。
 
 矩阵:
-  平台   LINUX / WINDOWS / ANDROID / OPHM / BSD / EMSCRIPTEN / IOS / OSX
+  平台   LINUX / WINDOWS / ANDROID / OHOS / BSD / EMSCRIPTEN / IOS / OSX
   架构   x86_64 / arm64-v8a   (按平台可选)
   模式   debug / release
   库类型 static / shared
   工具链 mingw / msvc / ndk / ohos / emsdk / xcode / native
 
 说明:
-  OPHM = OpenHarmony / HarmonyOS：优先使用 NDK 自带的
+  OHOS = OpenHarmony / HarmonyOS：优先使用 NDK 自带的
   ohos.toolchain.cmake；若无则退回 clang --target=*-linux-ohos
   --sysroot=<sdk>/sysroot 的交叉编译方式。
   ImGui 是纯 C/C++ 源码库，本脚本为每个组合在 output/build-<tag>/ 下
@@ -34,7 +34,7 @@ imgui4cj 全平台自动交叉编译 + 打包脚本
      arm64-v8a 使用候选目录 / --mingw 指定的 llvm-mingw（aarch64 三元组）；
   3. LINUX / BSD 平台使用本机原生编译器（clang/gcc 自动探测）；
   4. 需要 NDK / emsdk / OHOS SDK 的交叉编译平台（ANDROID、EMSCRIPTEN、
-     OPHM、以及非 Windows 主机上的 WINDOWS 交叉编译），会要求开发者
+     OHOS、以及非 Windows 主机上的 WINDOWS 交叉编译），会要求开发者
      提供 SDK 路径（命令行参数 > 环境变量 > 交互询问），无法提供则告警跳过；
   5. IOS / OSX 必须在 macOS 上编译（Xcode 生成器），否则告警跳过；
   6. 默认只编译 static（cjpm.toml 消费 -l:libimgui.a 静态库）。shared 产物
@@ -45,7 +45,7 @@ imgui4cj 全平台自动交叉编译 + 打包脚本
 用法示例:
   python build.py                                  # 全部平台 static 排列组合
   python build.py --platforms WINDOWS              # 只编指定平台
-  python build.py --platforms OPHM --ohos-sdk D:/sdk/native
+  python build.py --platforms OHOS --ohos-sdk D:/sdk/native
   python build.py --modes release --arches x86_64
   python build.py --libtype static                 # 只编静态库（默认）
   python build.py --mingw D:/mingw64               # 指定 mingw-w64 工具链
@@ -102,7 +102,7 @@ LEGACY_BUILD_DIR = os.path.join(SCRIPT_DIR, "build")   # 旧版脚本的构建�
 PKG_PREFIX   = "imgui4cj"   # zip 包名前缀
 LIB_BASENAME = "imgui"      # 库产物名（MinGW: libimgui.a；MSVC: imgui.lib）
 
-ALL_PLATFORMS = ["LINUX", "WINDOWS", "ANDROID", "OPHM", "BSD", "EMSCRIPTEN", "IOS", "OSX"]
+ALL_PLATFORMS = ["LINUX", "WINDOWS", "ANDROID", "OHOS", "BSD", "EMSCRIPTEN", "IOS", "OSX"]
 ALL_MODES     = ["debug", "release"]
 ALL_ARCHES    = ["x86_64", "arm64-v8a"]
 ALL_LIBTYPES  = ["static", "shared"]
@@ -112,7 +112,7 @@ PLATFORM_ARCHES = {
     "LINUX":      ["x86_64", "arm64-v8a"],
     "WINDOWS":    ["x86_64", "arm64-v8a"],
     "ANDROID":    ["arm64-v8a", "x86_64"],
-    "OPHM":       ["arm64-v8a", "x86_64"],
+    "OHOS":       ["arm64-v8a", "x86_64"],
     "BSD":        ["x86_64"],
     "EMSCRIPTEN": ["x86_64"],
     "IOS":        ["arm64-v8a", "x86_64"],
@@ -125,7 +125,7 @@ BX_PLATFORM_DEFINE = {
     "LINUX":      ["BX_PLATFORM_LINUX=1"],
     "WINDOWS":    ["BX_PLATFORM_WINDOWS=1"],
     "ANDROID":    ["BX_PLATFORM_ANDROID=1"],
-    "OPHM":       ["BX_PLATFORM_OPHM=1", "BX_PLATFORM_LINUX=1"],
+    "OHOS":       ["BX_PLATFORM_OHOS=1", "BX_PLATFORM_LINUX=1"],
     "BSD":        ["BX_PLATFORM_BSD=1"],
     "EMSCRIPTEN": ["BX_PLATFORM_EMSCRIPTEN=1"],
     "IOS":        ["BX_PLATFORM_IOS=1"],
@@ -149,7 +149,7 @@ SHARED_SYS_LIBS = {
     "WINDOWS": ["imm32", "winmm", "version", "setupapi", "hid", "dinput8",
                 "d3d11", "dxgi", "d3dcompiler", "ws2_32"],
     "ANDROID": ["log", "android", "EGL", "GLESv3"],
-    "OPHM":    ["EGL", "GLESv3"],
+    "OHOS":    ["EGL", "GLESv3"],
     "LINUX":   ["X11", "Xext", "Xcursor", "Xi", "Xfixes", "Xrandr", "Xrender",
                 "GL", "dl", "pthread", "rt", "m"],
     "BSD":     ["X11", "Xext", "Xcursor", "Xi", "Xfixes", "Xrandr", "Xrender",
@@ -256,7 +256,7 @@ def parse_args():
     )
     ap.add_argument("--platforms", default=",".join(ALL_PLATFORMS),
                     help="编译平台清单，逗号分隔，可选: " + ",".join(ALL_PLATFORMS)
-                         + "（默认全部，OPHM=OpenHarmony/HarmonyOS）")
+                         + "（默认全部，OHOS=OpenHarmony/HarmonyOS）")
     ap.add_argument("--modes", default=",".join(ALL_MODES),
                     help="编译模式清单，逗号分隔: debug,release（默认全部）")
     ap.add_argument("--arches", default=",".join(ALL_ARCHES),
@@ -270,7 +270,7 @@ def parse_args():
     ap.add_argument("--ndk", default=None,
                     help="Android NDK 路径（或环境变量 ANDROID_NDK_HOME / ANDROID_NDK_ROOT）")
     ap.add_argument("--ohos-sdk", default=None,
-                    help="HarmonyOS / OpenHarmony NDK 路径（OPHM 平台，或环境变量 OHOS_SDK）")
+                    help="HarmonyOS / OpenHarmony NDK 路径（OHOS 平台，或环境变量 OHOS_SDK）")
     ap.add_argument("--emsdk", default=None,
                     help="Emscripten SDK 路径（或环境变量 EMSDK）")
     ap.add_argument("--mingw", default=None,
@@ -360,7 +360,7 @@ def resolve_ndk(args):
 
 
 def resolve_ohos_sdk(args):
-    """解析 HarmonyOS / OpenHarmony NDK 路径（OPHM 平台需要）"""
+    """解析 HarmonyOS / OpenHarmony NDK 路径（OHOS 平台需要）"""
     v = (args.ohos_sdk
          or os.environ.get("OHOS_SDK")
          or os.environ.get("OHOS_NDK_HOME"))
@@ -640,7 +640,7 @@ def can_build(platform, host, ctx):
         if ctx.get("ndk"):
             return True, ""
         return False, "缺少 NDK 路径（--ndk / ANDROID_NDK_HOME / 交互提供）"
-    if platform == "OPHM":
+    if platform == "OHOS":
         if ctx.get("ohos"):
             return True, ""
         return False, "缺少 OpenHarmony (OHOS) NDK 路径（--ohos-sdk / OHOS_SDK / 交互提供）"
@@ -775,7 +775,7 @@ def toolchain_cfg(platform, arch, toolchain, host, ctx, args):
             "-DANDROID_STL=c++_static",
         ]
 
-    elif platform == "OPHM":
+    elif platform == "OHOS":
         sdk = ctx["ohos"]
         tc_file, target = probe_ohos(sdk, arch)
         if tc_file:
@@ -1216,10 +1216,10 @@ def main():
         ctx["ndk"] = resolve_ndk(args)
         if not ctx["ndk"]:
             print("  [WARN] ANDROID 平台因缺少 NDK 路径被跳过")
-    if "OPHM" in platforms:
+    if "OHOS" in platforms:
         ctx["ohos"] = resolve_ohos_sdk(args)
         if not ctx["ohos"]:
-            print("  [WARN] OPHM 平台因缺少 OHOS SDK 路径被跳过")
+            print("  [WARN] OHOS 平台因缺少 OHOS SDK 路径被跳过")
     if "EMSCRIPTEN" in platforms:
         ctx["emsdk"] = resolve_emsdk(args)
         if not ctx["emsdk"]:

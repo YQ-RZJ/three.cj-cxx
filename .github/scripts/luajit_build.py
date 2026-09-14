@@ -7,13 +7,13 @@ luajit4cj 全平台自动交叉编译 + 打包脚本
 CLI 约定与 bgfx4cj/cxx/build.py 对齐：
   - 模式:   debug / release
   - 架构:   x86_64 / arm64-v8a（对应 LuaJIT TARGET_ARCH x64 / arm64）
-  - 平台:   LINUX WINDOWS ANDROID OPHM BSD IOS OSX
+  - 平台:   LINUX WINDOWS ANDROID OHOS BSD IOS OSX
   - 工具链: mingw / clang（NDK、OHOS SDK、xcrun）
   - 库类型: static / shared（对应 LuaJIT BUILDMODE static / dynamic）
 
 说明：
   - LuaJIT 没有 Emscripten/wasm 后端，故平台清单不含 EMSCRIPTEN；
-  - OPHM = OpenHarmony / HarmonyOS，使用 OHOS NDK 的 llvm clang +
+  - OHOS = OpenHarmony / HarmonyOS，使用 OHOS NDK 的 llvm clang +
     --target=*-linux-ohos 交叉编译（TARGET_SYS 走 Linux）；
   - LuaJIT 的 Makefile 不支持 out-of-tree 构建，产物/生成文件就地落在
     LuaJIT/src 下，且随 TARGET_LJARCH 变化。因此每个组合开始前会清理
@@ -28,7 +28,7 @@ CLI 约定与 bgfx4cj/cxx/build.py 对齐：
   python build.py                                  # 全部平台排列组合（缺 SDK/宿主不符自动跳过）
   python build.py --platforms WINDOWS              # 只编 Windows（mingw）
   python build.py --platforms ANDROID --ndk D:/ndk
-  python build.py --platforms OPHM --ohos-sdk D:/ohos
+  python build.py --platforms OHOS --ohos-sdk D:/ohos
   python build.py --modes release --arches x86_64
   python build.py --libtype static                 # 只编静态库
   python build.py --batch                          # 非交互（不询问，缺 SDK 即跳过）
@@ -78,7 +78,7 @@ DIST_DIR   = os.path.join(SCRIPT_DIR, "dist")
 LOG_DIR    = os.path.join(DIST_DIR, "logs")
 LIBS_DIR   = os.path.join(os.path.dirname(SCRIPT_DIR), "libs")   # 父工程 libs/
 
-ALL_PLATFORMS = ["LINUX", "WINDOWS", "ANDROID", "OPHM", "BSD", "IOS", "OSX"]
+ALL_PLATFORMS = ["LINUX", "WINDOWS", "ANDROID", "OHOS", "BSD", "IOS", "OSX"]
 ALL_MODES     = ["debug", "release"]
 ALL_ARCHES    = ["x86_64", "arm64-v8a"]
 ALL_LIBTYPES  = ["static", "shared"]
@@ -94,7 +94,7 @@ TARGET_SYS = {
     "LINUX":   "Linux",
     "WINDOWS": "Windows",
     "ANDROID": "Linux",
-    "OPHM":    "Linux",
+    "OHOS":    "Linux",
     "BSD":     "BSD",
     "IOS":     "iOS",
     "OSX":     "Darwin",
@@ -187,7 +187,7 @@ def parse_args():
     )
     ap.add_argument("--platforms", default=",".join(ALL_PLATFORMS),
                     help="编译平台清单，逗号分隔，可选: " + ",".join(ALL_PLATFORMS)
-                         + "（默认全部，OPHM=OpenHarmony/HarmonyOS）")
+                         + "（默认全部，OHOS=OpenHarmony/HarmonyOS）")
     ap.add_argument("--modes", default=",".join(ALL_MODES),
                     help="编译模式清单，逗号分隔: debug,release（默认全部）")
     ap.add_argument("--arches", default=",".join(ALL_ARCHES),
@@ -197,7 +197,7 @@ def parse_args():
     ap.add_argument("--ndk", default=None,
                     help="Android NDK 路径（或环境变量 ANDROID_NDK_HOME / OHOS_SDK）")
     ap.add_argument("--ohos-sdk", default=None,
-                    help="HarmonyOS / OpenHarmony NDK 路径（OPHM 平台，或环境变量 OHOS_SDK）")
+                    help="HarmonyOS / OpenHarmony NDK 路径（OHOS 平台，或环境变量 OHOS_SDK）")
     ap.add_argument("--mingw", default=None,
                     help="mingw-w64 前缀工具链目录（WINDOWS 平台用，默认从 PATH 探测）")
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 4,
@@ -240,7 +240,7 @@ def resolve_ndk(args):
 
 
 def resolve_ohos_sdk(args):
-    """解析 HarmonyOS / OpenHarmony NDK 路径（OPHM 平台需要）"""
+    """解析 HarmonyOS / OpenHarmony NDK 路径（OHOS 平台需要）"""
     v = (args.ohos_sdk
          or os.environ.get("OHOS_SDK")
          or os.environ.get("OHOS_NDK_HOME"))
@@ -406,7 +406,7 @@ def can_build(platform, host, ctx):
         if ctx.get("ndk"):
             return True, ""
         return False, "缺少 NDK 路径（--ndk / ANDROID_NDK_HOME / 交互提供）"
-    if platform == "OPHM":
+    if platform == "OHOS":
         if ctx.get("ohos"):
             return True, ""
         return False, "缺少 OpenHarmony (OHOS) NDK 路径（--ohos-sdk / OHOS_SDK / 交互提供）"
@@ -469,7 +469,7 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
             raise RuntimeError("缺少 %s 的 mingw-w64 工具链" % arch)
         cc, cxx, ld = tc
         target_cc = cc
-    elif platform in ("ANDROID", "OPHM"):
+    elif platform in ("ANDROID", "OHOS"):
         if platform == "ANDROID":
             ndk = ctx.get("ndk")
             if not ndk:
@@ -478,7 +478,7 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
         else:
             sdk = ctx.get("ohos")
             if not sdk:
-                raise RuntimeError("OPHM 需要 OHOS SDK 路径")
+                raise RuntimeError("OHOS 需要 OHOS SDK 路径")
             cc, cxx, ld, sysroot, target = probe_ohos(sdk, arch)
         cross = "--target=" + target + " --sysroot=" + sysroot
         target_cc = cc + " " + cross
@@ -541,7 +541,7 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
     # shared 构建的 _dyn.o 需要 -fPIC（Makefile 的 DYNAMIC_CC 默认带，
     # 但命令行覆盖 TARGET_DYNCC 后必须自己补上）。
     dyncc = target_cc
-    if platform in ("ANDROID", "OPHM"):
+    if platform in ("ANDROID", "OHOS"):
         dyncc = target_cc + " -fPIC"
     elif platform == "LINUX":
         # CI-PATCH: 覆盖 TARGET_DYNCC 后 Makefile 默认的 DYNAMIC_CC=
@@ -569,7 +569,7 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
         "BUILDMODE=" + ("dynamic" if libtype == "shared" else "static"),
         "Q=",
     ]
-    if platform in ("ANDROID", "OPHM"):
+    if platform in ("ANDROID", "OHOS"):
         # Windows 宿主上 mingw32-make 的 shell 是 cmd.exe，LuaJIT Makefile
         # 里的 POSIX 检测/重定向全部失效，必须显式覆盖：
         #  1) TARGET_TESTUNWIND 检测不到 eh_frame → x64 的 lj_err.c 触发
@@ -636,7 +636,7 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
         # DYNLINK libluajit.so 时宿主链接器按 macOS 目标链接 iOS 对象，
         # 报 "building for 'macOS', but linking in object file built
         # for 'iOS'"（iOS job 实测；-DLJ_NO_SYSTEM 修复后编译已全过，
-        # 挂在最后链接一步）。与 ANDROID/OPHM/WINDOWS/LINUX 分支一致，
+        # 挂在最后链接一步）。与 ANDROID/OHOS/WINDOWS/LINUX 分支一致，
         # 用目标编译器（clang -isysroot iphoneos --target=arm64-apple-ios）
         # 链接。OSX 分支宿主即目标，无需覆盖（此前 mac job 已验证）。
         vars.append("TARGET_LD=" + target_cc)
@@ -840,10 +840,10 @@ def main():
         ctx["ndk"] = resolve_ndk(args)
         if not ctx["ndk"]:
             print("  [WARN] ANDROID 平台因缺少 NDK 路径被跳过")
-    if "OPHM" in platforms:
+    if "OHOS" in platforms:
         ctx["ohos"] = resolve_ohos_sdk(args)
         if not ctx["ohos"]:
-            print("  [WARN] OPHM 平台因缺少 OHOS SDK 路径被跳过")
+            print("  [WARN] OHOS 平台因缺少 OHOS SDK 路径被跳过")
 
     dist_dir = os.path.abspath(args.dist)
     results = []   # (name, ok, note)

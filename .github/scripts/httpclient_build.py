@@ -7,7 +7,7 @@ openssl4cj 全平台自动交叉编译 + 打包脚本
 CLI 约定与 bgfx4cj/cxx/build.py 对齐：
   - 模式:   debug / release
   - 架构:   x86_64 / arm64-v8a
-  - 平台:   LINUX WINDOWS ANDROID OPHM BSD IOS OSX
+  - 平台:   LINUX WINDOWS ANDROID OHOS BSD IOS OSX
   - 工具链: mingw / clang（NDK、OHOS SDK、xcrun）
   - 库类型: static / shared
 
@@ -74,7 +74,7 @@ LOG_DIR     = os.path.join(DIST_DIR, "logs")
 BUILD_DIR   = os.path.join(SCRIPT_DIR, "build")             # 构建中间产物
 LIBS_DIR    = os.path.join(os.path.dirname(SCRIPT_DIR), "libs")  # 父工程 libs/
 
-ALL_PLATFORMS = ["LINUX", "WINDOWS", "ANDROID", "OPHM", "BSD", "IOS", "OSX"]
+ALL_PLATFORMS = ["LINUX", "WINDOWS", "ANDROID", "OHOS", "BSD", "IOS", "OSX"]
 ALL_MODES     = ["debug", "release"]
 ALL_ARCHES    = ["x86_64", "arm64-v8a"]
 ALL_LIBTYPES  = ["static", "shared"]
@@ -116,7 +116,7 @@ OPENSSL_TARGET = {
         "x86_64":    "android-x86_64",
         "arm64-v8a": "android-arm64",
     },
-    "OPHM": {
+    "OHOS": {
         "x86_64":    "linux-x86_64",
         "arm64-v8a": "linux-aarch64",
     },
@@ -310,7 +310,7 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument("--platforms", default=",".join(ALL_PLATFORMS),
-                    help="编译平台清单，逗号分隔（默认全部，OPHM=OpenHarmony/HarmonyOS）")
+                    help="编译平台清单，逗号分隔（默认全部，OHOS=OpenHarmony/HarmonyOS）")
     ap.add_argument("--modes", default=",".join(ALL_MODES),
                     help="编译模式清单: debug,release（默认全部）")
     ap.add_argument("--arches", default=",".join(ALL_ARCHES),
@@ -320,7 +320,7 @@ def parse_args():
     ap.add_argument("--ndk", default=None,
                     help="Android NDK 路径（或环境变量 ANDROID_NDK_HOME / OHOS_SDK）")
     ap.add_argument("--ohos-sdk", default=None,
-                    help="HarmonyOS / OpenHarmony NDK 路径（OPHM 平台，或环境变量 OHOS_SDK）")
+                    help="HarmonyOS / OpenHarmony NDK 路径（OHOS 平台，或环境变量 OHOS_SDK）")
     ap.add_argument("--msys2", default=None,
                     help="MSYS2 安装路径（WINDOWS 平台需要，默认自动探测）")
     ap.add_argument("--mingw", default=None,
@@ -525,7 +525,7 @@ def resolve_ndk(args):
 
 
 def resolve_ohos_sdk(args):
-    """解析 HarmonyOS / OpenHarmony NDK 路径（OPHM 平台需要）。"""
+    """解析 HarmonyOS / OpenHarmony NDK 路径（OHOS 平台需要）。"""
     v = (args.ohos_sdk
          or os.environ.get("OHOS_SDK")
          or os.environ.get("OHOS_NDK_HOME"))
@@ -669,7 +669,7 @@ def can_build(platform, host, ctx):
         if ctx.get("ndk"):
             return True, ""
         return False, "缺少 NDK 路径（--ndk / ANDROID_NDK_HOME）"
-    if platform == "OPHM":
+    if platform == "OHOS":
         if ctx.get("ohos"):
             return True, ""
         return False, "缺少 OHOS SDK 路径（--ohos-sdk / OHOS_SDK）"
@@ -709,7 +709,7 @@ def _generated_asm_files(ssl_dir):
     注意：旧实现用“同目录/asm 子目录是否存在同名 .pl”来判定，但 perlasm 的
     生成器文件名经常与产物不同（如 sha256-x86_64.s 由 asm/sha512-x86_64.pl
     生成），导致这类文件永远删不掉，残留下一个平台（如 Windows mingw COFF
-    格式）的 .s 污染下一个平台（Android/OPHM ELF 汇编报 unknown directive）。
+    格式）的 .s 污染下一个平台（Android/OHOS ELF 汇编报 unknown directive）。
     """
     gen_re = re.compile(r"^[ \t]*GENERATE\[[ \t]*([^=\]]+?)[ \t]*\][ \t]*=", re.M)
     result = set()
@@ -953,8 +953,8 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
         if os.path.isfile(tmp_sh):
             os.remove(tmp_sh)
 
-    elif platform in ("ANDROID", "OPHM"):
-        # Android/OPHM: 使用 NDK clang 交叉编译
+    elif platform in ("ANDROID", "OHOS"):
+        # Android/OHOS: 使用 NDK clang 交叉编译
         if platform == "ANDROID":
             cc, ar, sysroot, ndk_target = probe_ndk_toolchain(ctx["ndk"], arch, host)
         else:
@@ -967,7 +967,7 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
             # Windows 主机上需要通过 MSYS2 bash 执行（Windows 没有 perl）
             msys2 = ctx.get("msys2")
             if not msys2:
-                print("  [ERROR] ANDROID/OPHM 在 Windows 上编译需要 MSYS2")
+                print("  [ERROR] ANDROID/OHOS 在 Windows 上编译需要 MSYS2")
                 return False
             msys2_bash = os.path.join(msys2, "usr", "bin", "bash.exe")
             ssl_dir_msys = to_msys2_path(ssl_dir)
@@ -990,7 +990,7 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
                 ndk_msys = to_msys2_path(ctx["ndk"])
                 shell_script_lines.append('export ANDROID_NDK_ROOT="%s"' % ndk_msys)
             else:
-                # OPHM: 需要设置 CC 和 sysroot
+                # OHOS: 需要设置 CC 和 sysroot
                 cc_msys = to_msys2_path(cc)
                 ar_msys = to_msys2_path(ar)
                 sysroot_msys = to_msys2_path(sysroot)
@@ -1030,7 +1030,7 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
                 os.remove(tmp_sh)
         else:
             # Linux/macOS 主机：直接使用系统 perl + make
-            # 同样，ANDROID 让 Configure 自动检测，OPHM 手动设置
+            # 同样，ANDROID 让 Configure 自动检测，OHOS 手动设置
             if platform == "ANDROID":
                 env["ANDROID_NDK_ROOT"] = ctx["ndk"]
                 ndk_bin_dir = os.path.dirname(cc)
@@ -1134,7 +1134,7 @@ def build_tlsbridge(platform, arch, mode, host, ctx, ssl_dir, log_path):
         # 链接 OpenSSL 库
         ssl_libs = "-L" + ssl_dir + " -lcrypto -lssl"
 
-    elif platform in ("ANDROID", "OPHM"):
+    elif platform in ("ANDROID", "OHOS"):
         if platform == "ANDROID":
             cc, ar, sysroot, ndk_target = probe_ndk_toolchain(ctx["ndk"], arch, host)
         else:
@@ -1384,7 +1384,7 @@ def main():
     msys2 = resolve_msys2(args)
     mingw = resolve_mingw(args)
     ndk = resolve_ndk(args) if "ANDROID" in platforms else None
-    ohos = resolve_ohos_sdk(args) if "OPHM" in platforms else None
+    ohos = resolve_ohos_sdk(args) if "OHOS" in platforms else None
 
     ctx = {
         "msys2": msys2,
@@ -1398,7 +1398,7 @@ def main():
     print("  MSYS2: %s" % (msys2 or "未找到（WINDOWS 需要）"))
     print("  MinGW: %s" % (mingw or "未找到（WINDOWS 需要）"))
     print("  NDK:   %s" % (ndk or "未设置（ANDROID 需要）"))
-    print("  OHOS:  %s" % (ohos or "未设置（OPHM 需要）"))
+    print("  OHOS:  %s" % (ohos or "未设置（OHOS 需要）"))
     print("=" * 60)
 
     dist_dir = os.path.abspath(args.dist)

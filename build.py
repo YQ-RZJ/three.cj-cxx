@@ -10,10 +10,10 @@ build.py — cxx 全库统一构建入口（linux / windows / mac 本机可用�
     python build.py --modes release              # 局部：只编 release（默认 debug,release）
     python build.py --libtypes static            # 局部：只编静态（默认 static,shared）
     python build.py --platforms ANDROID --ndk D:/ndk
-    python build.py --platforms OPHM --ohos-sdk D:/OpenHarmony/23/native
+    python build.py --platforms OHOS --ohos-sdk D:/OpenHarmony/23/native
     python build.py --platforms WINDOWS --arches arm64-v8a --mingw D:/llvm-mingw
 
-平台名：LINUX / WINDOWS / OSX / ANDROID / OPHM / IOS
+平台名：LINUX / WINDOWS / OSX / ANDROID / OHOS / IOS
 （组内别名自动转换：sdl 组的 OHOS/MACOS；IOS/OSX 仅允许在 macOS 主机上执行）
 
 产物：各组脚本按自身默认输出（cxx/output、cxx/build、cxx/dist zip、cxx|上层 libs/）；
@@ -36,24 +36,24 @@ GROUPS = ["bgfx", "imgui", "sdl", "openal", "jolt", "luajit",
           "httpclient", "cjbridge", "tracy"]
 
 # CLI 暴露的平台（组内 BSD/EMSCRIPTEN 未暴露，如需手动调用各组脚本）
-CLI_PLATFORMS = ["LINUX", "WINDOWS", "OSX", "ANDROID", "OPHM", "IOS"]
+CLI_PLATFORMS = ["LINUX", "WINDOWS", "OSX", "ANDROID", "OHOS", "IOS"]
 
 # 组 → 支持的平台（自各 build.py 的 ALL_PLATFORMS 归并，已折算别名）
 GROUP_PLATFORMS = {
-    "bgfx":      {"LINUX", "WINDOWS", "ANDROID", "OPHM", "OSX", "IOS"},
-    "imgui":     {"LINUX", "WINDOWS", "ANDROID", "OPHM", "OSX", "IOS"},
-    "sdl":       {"LINUX", "WINDOWS", "ANDROID", "OPHM", "OSX", "IOS"},
-    "openal":    {"LINUX", "WINDOWS", "ANDROID", "OPHM", "OSX", "IOS"},
-    "jolt":      {"LINUX", "WINDOWS", "ANDROID", "OPHM", "OSX", "IOS"},
-    "luajit":    {"LINUX", "WINDOWS", "ANDROID", "OPHM", "OSX", "IOS"},
-    "httpclient":{"LINUX", "WINDOWS", "ANDROID", "OPHM", "OSX", "IOS"},
-    "cjbridge":  {"LINUX", "WINDOWS", "ANDROID", "OPHM", "OSX", "IOS"},
-    "tracy":     {"LINUX", "WINDOWS", "ANDROID", "OPHM", "OSX", "IOS"},
+    "bgfx":      {"LINUX", "WINDOWS", "ANDROID", "OHOS", "OSX", "IOS"},
+    "imgui":     {"LINUX", "WINDOWS", "ANDROID", "OHOS", "OSX", "IOS"},
+    "sdl":       {"LINUX", "WINDOWS", "ANDROID", "OHOS", "OSX", "IOS"},
+    "openal":    {"LINUX", "WINDOWS", "ANDROID", "OHOS", "OSX", "IOS"},
+    "jolt":      {"LINUX", "WINDOWS", "ANDROID", "OHOS", "OSX", "IOS"},
+    "luajit":    {"LINUX", "WINDOWS", "ANDROID", "OHOS", "OSX", "IOS"},
+    "httpclient":{"LINUX", "WINDOWS", "ANDROID", "OHOS", "OSX", "IOS"},
+    "cjbridge":  {"LINUX", "WINDOWS", "ANDROID", "OHOS", "OSX", "IOS"},
+    "tracy":     {"LINUX", "WINDOWS", "ANDROID", "OHOS", "OSX", "IOS"},
 }
 
 # 平台别名：统一 CLI 名 → 组脚本实际接受名
 PLATFORM_ALIAS = {
-    "sdl": {"OPHM": "OHOS", "OSX": "MACOS"},
+    "sdl": {"OHOS": "OHOS", "OSX": "MACOS"},
 }
 
 # 仅允许在 macOS 主机上执行的平台
@@ -141,7 +141,7 @@ def main():
                     help=f"逗号分隔，可选 {','.join(GROUPS)}（默认全部）")
     ap.add_argument("--ndk", default=None, help="Android NDK 根目录（ANDROID 平台）")
     ap.add_argument("--ohos-sdk", default=None,
-                    help="OHOS SDK native 目录，如 D:/OpenHarmony/23/native（OPHM 平台）")
+                    help="OHOS SDK native 目录，如 D:/OpenHarmony/23/native（OHOS 平台）")
     ap.add_argument("--mingw", default=None,
                     help="mingw-w64 / llvm-mingw 根目录（Windows arm64 交叉用）")
     ap.add_argument("--android-api", type=int, default=24, help="Android API level")

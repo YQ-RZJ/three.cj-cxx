@@ -126,9 +126,32 @@ jobs:
           cp -r "$NATIVE_DIR"/. ~/ohos-sdk-native/
           echo "SDK native contents:" && ls ~/ohos-sdk-native | head
 
+      # CI-PATCH: 移植自 windows.yml（arm64 job 已验证）——runner 预装的
+      # C:\msys64 是精简实例（无 perl），httpclient 的 openssl Configure
+      # exit 127（OHOS job 实测）。固定安装根 + perl，经 MSYS2_ROOT 传给
+      # 各 build.py。
+      - name: Install MSYS2 + toolchain (openssl needs perl)
+        uses: msys2/setup-msys2@v2
+        with:
+          update: false
+          msystem: MINGW64
+          location: C:\msys2-full
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            make
+            perl
+            python
+
+      - name: Export MSYS2 root
+        shell: pwsh
+        run: |
+          "MSYS2_ROOT=C:\msys2-full" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       - name: Build all libraries (incl. SDL3 shared for static packaging)
         run: |
-          CMD="python .github/scripts/ci_build.py --platform OPHM --arch ${{ matrix.arch }} --ohos-sdk \"$HOME/ohos-sdk-native\""
+          CMD="python .github/scripts/ci_build.py --platform OHOS --arch ${{ matrix.arch }} --ohos-sdk \"$HOME/ohos-sdk-native\""
           if [ -n "${{ inputs.modes }}" ]; then CMD="$CMD --modes ${{ inputs.modes }}"; fi
           if [ -n "${{ inputs.libtypes }}" ]; then CMD="$CMD --libtypes ${{ inputs.libtypes }}"; fi
           if [ -n "${{ inputs.groups }}" ]; then CMD="$CMD --groups ${{ inputs.groups }}"; fi

@@ -11,7 +11,7 @@ ci_build.py — GitHub Actions 统一驱动脚本
 用法：
     python ci_build.py --platform LINUX  --arch x86_64
     python ci_build.py --platform ANDROID --arch arm64-v8a --ndk $ANDROID_NDK_HOME
-    python ci_build.py --platform OPHM   --arch arm64-v8a --ohos-sdk <sdk>/native
+    python ci_build.py --platform OHOS   --arch arm64-v8a --ohos-sdk <sdk>/native
     python ci_build.py --platform OSX    --arch arm64-v8a
     python ci_build.py --platform IOS    --arch arm64-v8a
 
@@ -48,7 +48,7 @@ PLATFORM_GROUPS = {
     "WINDOWS": list(_BASE_GROUPS),
     "OSX":     list(_BASE_GROUPS),
     "ANDROID": list(_BASE_GROUPS),
-    "OPHM":    list(_BASE_GROUPS),
+    "OHOS":    list(_BASE_GROUPS),
     # IOS 与 OSX 同为 Apple 工具链（Xcode clang），各组脚本 ALL_PLATFORMS 均已
     # 声明支持 IOS，全量对齐 mac
     "IOS":     list(_BASE_GROUPS),
@@ -57,7 +57,7 @@ PLATFORM_GROUPS = {
 # OS 目录名（打包结构第一级）
 PLATFORM_OS_DIR = {
     "LINUX": "linux", "WINDOWS": "windows", "OSX": "macos",
-    "ANDROID": "android", "OPHM": "ohos", "IOS": "ios",
+    "ANDROID": "android", "OHOS": "ohos", "IOS": "ios",
 }
 
 # 归包扫描目录（相对 cxx 根；collect_dist.py 递归收集库扩展名）
@@ -274,7 +274,7 @@ def main():
                "--os", os_dir, "--arch", args.arch,
                "--out", DIST_ROOT, "--clean"] + srcs
     # OHOS：static 内附带对应架构 SDL3 动态库（若本轮已产出）
-    if plat == "OPHM" and os.path.isfile(sdl_so_hint):
+    if plat == "OHOS" and os.path.isfile(sdl_so_hint):
         collect += ["--sdl-so", sdl_so_hint]
     run(collect, env)
     print(f"[ci] DONE {plat} {args.arch} -> dist/{os_dir}/{args.arch}/{{static,shared}}")
