@@ -823,8 +823,30 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
     # 确定 Configure 目标
     target = OPENSSL_TARGET.get(platform, {}).get(arch, "linux-x86_64")
 
+    # 构建环境（先于交叉注入：CI-PATCH 的 env[...] 赋值依赖它）
+    env = os.environ.copy()
+
     # 构建 Configure 参数
     config_opts = [target]
+
+    # CI-PATCH: LINUX/BSD arm64 交叉——linux-aarch64 目标默认用宿主 gcc，
+    # x86_64 宿主编 arm64 产物时 arm_arch.h 报
+    # "#error unsupported ARM architecture"（__ARM_ARCH 未定义），必须
+    # 注入交叉工具链并关 asm（perlasm 产物按宿主探测，与 bgfx 同款缺口）。
+    if platform in ("LINUX", "BSD") and arch == "arm64-v8a":
+        import shutil as _sh
+        cross_prefix = "aarch64-linux-gnu" if platform == "LINUX" else "aarch64-unknown-freebsd"
+        cross_cc = _sh.which(cross_prefix + "-gcc") or _sh.which(cross_prefix + "-clang")
+        if cross_cc:
+            env["CC"] = cross_prefix + ("-gcc" if cross_cc.endswith("gcc") else "-clang")
+            env["CXX"] = env["CC"].replace("gcc", "g++").replace("clang", "clang++")
+            env["AR"] = cross_prefix + "-ar"
+            env["RANLIB"] = cross_prefix + "-ranlib"
+            # arm64 的 perlasm 探测宿主 CPU，交叉时关 asm 保正确性
+            config_opts.append("no-asm")
+            print("    [CROSS] %s: %s (no-asm)" % (arch, env["CC"]))
+        else:
+            print("    [WARN] arm64-v8a: 未找到 %s-gcc/clang，回退宿主工具链（将编译失败）" % cross_prefix)
 
     # 宏裁剪
     if not ctx.get("no_trim"):
@@ -852,9 +874,6 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
     # 不生成 apps 和 tests
     config_opts.append("no-apps")
     config_opts.append("no-tests")
-
-    # 构建环境
-    env = os.environ.copy()
 
     if platform == "WINDOWS":
         # Windows: 使用 MSYS2 bash 执行

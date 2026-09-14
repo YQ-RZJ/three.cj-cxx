@@ -113,22 +113,41 @@ def stage_imgui_deps(cxx_root: str, arch: str) -> str:
 
     CI-PATCH: 暂存目录必须放在 cxx 根下的 ci_deps/——不能放 output/、
     build/ 或 dist/，imgui_build.py 的 --clean 会 rmtree 这三个目录，
-    暂存库会被刚拷进去就删掉（Windows/macOS 都踩过的时序坑）。"""
+    暂存库会被刚拷进去就删掉（Windows/macOS 都踩过的时序坑）。
+
+    CI-PATCH2: 只收集 imgui 真正依赖的库家族（SDL3 / bgfx 家族），
+    其余 .a（如 httpclient 的 libtlsbridge.a）不掺入——选择性构建只跑
+    imgui 组时，残留的无关库会被误当有效依赖，shared 链接因缺
+    bgfx::/SDL 符号失败（macOS 实测）。libbgfx 或 libSDL3 任一缺失
+    时返回空串：imgui 会干净地跳过 shared 组合而非带残缺依赖硬链。"""
     import glob
     stage = os.path.join(cxx_root, "ci_deps", arch)
     os.makedirs(stage, exist_ok=True)
-    n = 0
+    dep_stems = ("libbgfx", "libbx", "libbimg", "libSDL3", "libsdl3",
+                 "bgfx", "bx", "bimg", "SDL3", "sdl3")
+    staged = []
     for src_root in ("output", "build"):
         base = os.path.join(cxx_root, src_root)
         if not os.path.isdir(base):
             continue
         for pattern in ("*.a", "*.lib", "*.so", "*.dylib"):
             for f in glob.glob(os.path.join(base, "**", pattern), recursive=True):
-                dst = os.path.join(stage, os.path.basename(f))
+                stem = os.path.basename(f)
+                if not any(s.lower() in stem.lower() for s in dep_stems):
+                    continue
+                dst = os.path.join(stage, stem)
                 if not os.path.isfile(dst):
                     shutil.copy2(f, dst)
-                    n += 1
-    return stage if n else ""
+                    staged.append(stem)
+    if not staged:
+        return ""
+    has_bgfx = any("bgfx" in s.lower() for s in staged)
+    has_sdl = any("sdl3" in s.lower() for s in staged)
+    if not (has_bgfx and has_sdl):
+        print("[ci] WARN stage_imgui_deps: 依赖不全（bgfx=%s sdl3=%s），"
+              "imgui shared 将被跳过" % (has_bgfx, has_sdl), flush=True)
+        return ""
+    return stage
 
 
 def main():
