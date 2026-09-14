@@ -614,6 +614,15 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
         # 同理 strip 也默认宿主 strip，改用三元组工具（不存在时保持原值让报错可见）
         strip = find_tool("aarch64-linux-gnu-strip") or "aarch64-linux-gnu-strip"
         vars.append("TARGET_STRIP=" + strip)
+    elif platform == "IOS":
+        # CI-PATCH: Makefile 默认 TARGET_LD=$(CROSS)$(CC)=宿主 gcc——
+        # DYNLINK libluajit.so 时宿主链接器按 macOS 目标链接 iOS 对象，
+        # 报 "building for 'macOS', but linking in object file built
+        # for 'iOS'"（iOS job 实测；-DLJ_NO_SYSTEM 修复后编译已全过，
+        # 挂在最后链接一步）。与 ANDROID/OPHM/WINDOWS/LINUX 分支一致，
+        # 用目标编译器（clang -isysroot iphoneos --target=arm64-apple-ios）
+        # 链接。OSX 分支宿主即目标，无需覆盖（此前 mac job 已验证）。
+        vars.append("TARGET_LD=" + target_cc)
     if mode == "debug":
         vars.append("CCDEBUG=-g")
     return vars

@@ -80,7 +80,15 @@ jobs:
             exit 1
           fi
           echo "NATIVE_ZIP=$NATIVE_ZIP"
-          unzip -q "$NATIVE_ZIP"
+          # CI-PATCH: Git Bash 默认不带 unzip（windows runner 实测
+          # command not found → exit 1，此时 find 已命中组件 zip）。
+          # 用预装 7z 解压，缺失时回退 PowerShell Expand-Archive。
+          if command -v 7z >/dev/null 2>&1; then
+            7z x -y "$NATIVE_ZIP" > /dev/null
+          else
+            ZWIN=$(cygpath -w "$NATIVE_ZIP" 2>/dev/null || echo "$NATIVE_ZIP")
+            powershell.exe -NoProfile -Command "Expand-Archive -Path '$ZWIN' -DestinationPath '.' -Force"
+          fi
           NATIVE_DIR=$(find . -maxdepth 4 -type d -name native | grep -i windows | head -1)
           if [ -z "$NATIVE_DIR" ]; then NATIVE_DIR=$(find . -maxdepth 4 -type d -name native | head -1); fi
           if [ -z "$NATIVE_DIR" ]; then
