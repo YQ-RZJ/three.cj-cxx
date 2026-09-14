@@ -265,14 +265,20 @@ def main():
             stage_imgui_deps(CXX_ROOT, args.arch)
 
     # ---- 归包：dist/<os>/<arch>/{static,shared} ----
-    srcs = []
+    # CI-PATCH: 方案 A——从各组 *_build.py 产出的 zip 归包（zip 在各组跑完
+    # 即持久化，不受后续组 --clean 影响；旧 --src 方式在多组互删后只剩
+    # 最后一组的产物，归包结果残缺）。zip 落点：8 组在 .github/scripts/dist/，
+    # bgfx 在 cxx/dist/（其 DIST_DIR=ROOT/dist）。
+    collect = [sys.executable, os.path.join(HERE, "collect_dist.py"),
+               "--os", os_dir, "--arch", args.arch,
+               "--out", DIST_ROOT, "--clean",
+               "--zip", os.path.join(HERE, "dist", "*.zip"),
+               "--zip", os.path.join(DIST_ROOT, "*.zip")]
+    # 兼容保留：目录源作为兜底（zip 缺失的组若目录还在则仍能收集）
     for d in COLLECT_SRC_DIRS:
         p = os.path.join(CXX_ROOT, d)
         if os.path.isdir(p):
-            srcs += ["--src", p]
-    collect = [sys.executable, os.path.join(HERE, "collect_dist.py"),
-               "--os", os_dir, "--arch", args.arch,
-               "--out", DIST_ROOT, "--clean"] + srcs
+            collect += ["--src", p]
     # OHOS：static 内附带对应架构 SDL3 动态库（若本轮已产出）
     if plat == "OHOS" and os.path.isfile(sdl_so_hint):
         collect += ["--sdl-so", sdl_so_hint]

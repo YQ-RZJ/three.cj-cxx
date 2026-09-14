@@ -13,6 +13,11 @@ collect_dist.py — CI 统一归包脚本
     python collect_dist.py --os linux --arch x86_64 --out dist \
         --src cxx/output/build-x86_64-release/libs --src ... [--src ...]
 
+    # CI-PATCH: 从各组 *_build.py 产出的 zip 归包（对抗组间 --clean 互删，
+    # zip 在各组跑完即持久化）——解包后按同样的分类规则平铺：
+    python collect_dist.py --os ohos --arch arm64-v8a --out dist \
+        --zip .github/scripts/dist/bgfx4cj-*.zip --zip ... [--src ...]
+
     # OHOS static 特例：
     python collect_dist.py --os ohos --arch arm64-v8a --out dist --libtype static \
         --src ... --sdl-so <path>/libSDL3.so
@@ -21,8 +26,10 @@ collect_dist.py — CI 统一归包脚本
 --libtype 指定时强制全部归入该类型（供只产出一种链接形态的库使用）。
 """
 import argparse
+import glob
 import os
 import shutil
+import zipfile
 
 STATIC_EXT = {".a", ".lib"}
 SHARED_EXT = {".so", ".dll", ".dylib"}
@@ -49,8 +56,11 @@ def main():
     ap.add_argument("--out", default="dist", help="归包根目录（默认 dist/）")
     ap.add_argument("--libtype", choices=["static", "shared"], default=None,
                     help="强制分类（无扩展名可判别时使用）")
-    ap.add_argument("--src", action="append", required=True,
+    ap.add_argument("--src", action="append", default=[],
                     help="产物来源目录，可多次指定；递归收集其中的库文件")
+    ap.add_argument("--zip", action="append", default=[],
+                    help="CI-PATCH: 各组 *_build.py 产出的 zip（支持 glob），"
+                         "可多次指定；解包后按同样分类规则平铺（对抗组间 --clean 互删）")
     ap.add_argument("--sdl-so", default=None,
                     help="OHOS 特例：把该 libSDL3.so 复制到 static/<arch>/ 子目录")
     ap.add_argument("--clean", action="store_true", help="先清空目标系统目录")
@@ -62,6 +72,31 @@ def main():
     os.makedirs(target_root, exist_ok=True)
 
     collected = 0
+
+    # ---- CI-PATCH: 从各组产出的 zip 归包（方案 A：对抗组间 --clean 互删）----
+    # 子 zip 内部布局（各组 package() 约定）：<name>/include/** + <name>/<库文件>
+    # 解包到临时目录后走与 --src 完全相同的分类平铺逻辑。
+    zip_paths = []
+    for pattern in args.zip:
+        matched = sorted(glob.glob(pattern))
+        if not matched:
+            print(f"[collect] WARN zip glob 无匹配: {pattern}")
+        zip_paths += matched
+    tmp_unzip = os.path.join(args.out, "_unzip_tmp")
+    for zp in zip_paths:
+        if not os.path.isfile(zp):
+            print(f"[collect] skip missing zip: {zp}")
+            continue
+        try:
+            with zipfile.ZipFile(zp) as z:
+                z.extractall(tmp_unzip)
+        except zipfile.BadZipFile:
+            print(f"[collect] WARN 损坏的 zip，跳过: {zp}")
+            continue
+    # 解包出的目录并入收集源（与 --src 同路处理）
+    if os.path.isdir(tmp_unzip):
+        args.src.append(tmp_unzip)
+
     for src in args.src:
         if not os.path.isdir(src):
             print(f"[collect] skip missing: {src}")
@@ -82,6 +117,10 @@ def main():
                     shutil.copy2(src_file, dest)
                 collected += 1
     print(f"[collect] {collected} files -> {target_root}/{args.arch}/{{static,shared}}")
+
+    # CI-PATCH: 清理解包临时目录
+    if os.path.isdir(tmp_unzip):
+        shutil.rmtree(tmp_unzip, ignore_errors=True)
 
     # OHOS 特例：static/<arch>/libSDL3.so
     if args.sdl_so:
