@@ -491,7 +491,16 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
         if not base:
             raise RuntimeError("OSX 需要 clang")
         target = "arm64-apple-macosx" if arch == "arm64-v8a" else "x86_64-apple-macosx"
-        target_cc = base + " --target=" + target
+        # CI-PATCH: 必须带 -isysroot（同 IOS 分支）——CI runner 的裸 clang
+        # 不一定继承 SDKROOT，缺 sysroot 时 TargetConditionals.h/math.h/
+        # sys/types.h 全部找不到（macOS job 实测）。HOST_CC 同样补上：
+        # HOSTCC 阶段（minilua/buildvm）报的正是这组缺失。
+        sdk_path = _xcode_sdk("macosx")
+        if not sdk_path:
+            raise RuntimeError("无法获取 macosx SDK 路径（xcrun --sdk macosx --show-sdk-path）")
+        isysroot = " -isysroot " + sdk_path
+        host_cc = host_cc + isysroot
+        target_cc = base + isysroot + " --target=" + target
     elif platform == "IOS":
         if not find_tool("xcrun"):
             raise RuntimeError("IOS 需要 xcrun")

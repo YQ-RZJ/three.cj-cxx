@@ -109,9 +109,13 @@ def arch_for_script(script: str, arch: str) -> str:
 
 def stage_imgui_deps(cxx_root: str, arch: str) -> str:
     """收集本轮已编出的 SDL3/bgfx 等库文件到暂存目录，供 imgui shared
-    构建作为 --deps-lib 使用（imgui 排在 sdl/bgfx 之后编译）。"""
+    构建作为 --deps-lib 使用（imgui 排在 sdl/bgfx 之后编译）。
+
+    CI-PATCH: 暂存目录必须放在 cxx 根下的 ci_deps/——不能放 output/、
+    build/ 或 dist/，imgui_build.py 的 --clean 会 rmtree 这三个目录，
+    暂存库会被刚拷进去就删掉（Windows/macOS 都踩过的时序坑）。"""
     import glob
-    stage = os.path.join(cxx_root, "output", "ci_deps", arch)
+    stage = os.path.join(cxx_root, "ci_deps", arch)
     os.makedirs(stage, exist_ok=True)
     n = 0
     for src_root in ("output", "build"):

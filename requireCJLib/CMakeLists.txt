@@ -70,8 +70,15 @@ if(REQUIRECJ_FFI_SHARED)
         elseif(APPLE)
             target_link_options(requirecj_ffi PRIVATE -undefined dynamic_lookup)
         else()
-            # GCC/Clang: 允许未解析符号（Linux/Android/OHOS）
-            target_link_options(requirecj_ffi PRIVATE -Wl,--allow-shlib-undefined)
+            # GCC/Clang: 允许未解析符号（Linux/Android/OHOS）。
+            # CI-PATCH: Android NDK 工具链默认追加 -Wl,--no-undefined，而
+            # --allow-shlib-undefined 是另一个独立开关，抵消不了它——
+            # InitCJRuntime 等由仓颉运行时 .so 在运行时提供的符号会在
+            # 链接期报 undefined。--unresolved-symbols=ignore-all（lld
+            # 与 GNU ld 均支持）才能压制对象文件自身的未解析符号。
+            target_link_options(requirecj_ffi PRIVATE
+                -Wl,--allow-shlib-undefined
+                -Wl,--unresolved-symbols=ignore-all)
         endif()
     endif()
 endif()

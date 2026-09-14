@@ -64,15 +64,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y g++-aarch64-linux-gnu gcc-aarch64-linux-gnu
           # bgfx 的 CMakeLists 在 Linux 上 find_package(X11/OpenGL REQUIRED)，
-          # arm64 交叉需装 :arm64 多架构运行时库（头文件与 x86_64 共享）。
-          # 依赖链根是 libc6:arm64（libx11-6/libgl1 依赖它），gcc-*-aarch64-
-          # linux-gnu 自带的 libc6-dev-arm64-cross 不满足 dpkg 多架构依赖。
+          # arm64 交叉需装 :arm64 多架构运行时库（依赖链根 libc6:arm64）。
+          # 两个 apt 源要点：
+          #   1) noble runner 的 amd64 源是 deb822 格式（ubuntu.sources），
+          #      经典 one-line 的 sed 改不到——必须给 ubuntu.sources 加
+          #      Architectures: amd64，否则 archive/security.ubuntu.com 会被
+          #      索要 arm64 索引 → 404 → arm64 索引残缺 → 依赖解析断链；
+          #   2) security.ubuntu.com 不发布 arm64，arm64 的 security/updates
+          #      一律走 ports.ubuntu.com，arm64.list 需列全全部套件。
           sudo dpkg --add-architecture arm64
-          sudo sed -i 's/^deb http/deb [arch=amd64] http/' /etc/apt/sources.list
+          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            sudo sed -i 's/^Types: deb$/Types: deb\nArchitectures: amd64/' \
+              /etc/apt/sources.list.d/ubuntu.sources
+          fi
+          sudo sed -i 's/^deb http/deb [arch=amd64] http/' /etc/apt/sources.list 2>/dev/null || true
+          CODENAME="$(lsb_release -cs)"
           {
-            printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s main universe\n' "$(lsb_release -cs)"
+            printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s main universe\n' "$CODENAME"
+            printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s-updates main universe\n' "$CODENAME"
+            printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s-security main universe\n' "$CODENAME"
           } | sudo tee /etc/apt/sources.list.d/arm64.list >/dev/null
-          sudo apt-get update || true
+          sudo apt-get update
           sudo apt-get install -y libc6:arm64 libx11-6:arm64 libx11-dev:arm64 \
             libgl1:arm64 libgl1-mesa-dev:arm64 || \
             echo "[WARN] arm64 X11/GL 多架构包安装失败（bgfx_build.py 的预置变量探测会跳过）"
