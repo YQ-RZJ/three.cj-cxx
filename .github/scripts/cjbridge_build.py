@@ -560,6 +560,11 @@ def toolchain_cfg(platform, arch, toolchain, host, ctx, args):
             "-DCMAKE_SYSTEM_NAME=iOS",
             "-DCMAKE_OSX_ARCHITECTURES=" + ("arm64" if arch == "arm64-v8a" else "x86_64"),
             "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0",
+            # CI-PATCH: Xcode 生成器默认要求签名（CI 无 development team，
+            # "Signing for requirecj_ffi requires a development team" 实测
+            # 报错，与 imgui 同款）。CI 产物未分发，整体关闭签名。
+            "-DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO",
+            "-DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO",
         ]
         # CI-PATCH: 模拟器架构必须显式指定 iphonesimulator（对齐 imgui），
         # 否则 CMake 按默认 iphoneos 设备 SDK 配置 x86_64

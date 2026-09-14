@@ -26,7 +26,7 @@ on:
       libs:
         description: "库清单（按序，留空=全部库）"
         required: false
-        default: "bx,bimg,bimg_capi,bgfx,geometryc_capi,shaderc_capi,openssl,tlsbridge,cimgui,sdl,openal,miniaudio,jolt,luajit,ffi,napi,dlbridge,tracy"
+        default: "bx,bimg,bimg_capi,bgfx,geometryc_capi,shaderc_capi,sdl,cimgui,openssl,tlsbridge,openal,miniaudio,jolt,luajit,ffi,napi,dlbridge,tracy"
 
 permissions:
   contents: read
