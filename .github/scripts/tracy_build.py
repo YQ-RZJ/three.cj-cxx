@@ -498,7 +498,11 @@ def compile_cmd(platform, mode, arch, ctx, args):
     if platform == "LINUX":
         clang = find_tool("clang++") or find_tool("g++")
         flags = ["-std=c++17", "-fno-omit-frame-pointer", "-fPIC", "-pthread"]
-        return clang + flags + opt + common_defs, "ar", False
+        # CI-PATCH: find_tool 返回字符串，必须包成 [clang] 再拼列表——
+        # 直接 clang + flags 抛 'can only concatenate str (not "list")
+        # to str'（linux arm64 job 实测）。与 ANDROID/OPHM 分支的
+        # [cxx] + flags 写法对齐。
+        return [clang] + flags + opt + common_defs, "ar", False
 
     if platform == "ANDROID":
         ndk = ctx["ndk"]

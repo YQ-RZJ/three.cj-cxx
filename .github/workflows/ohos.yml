@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       sdk-url:
-        description: "OHOS SDK (linux) 下载地址，默认华为云 6.0.0.2-Release"
+        description: "OHOS SDK 下载地址，默认华为云 6.1-LTS（包内含 windows/linux 两套组件包，Windows runner 取 windows 套件）"
         required: false
-        default: "https://repo.huaweicloud.com/harmonyos/os/6.0.0.2-Release/ohos-sdk-windows_linux-public.tar.gz"
+        default: "https://repo.huaweicloud.com/harmonyos/os/6.1-LTS/ohos-sdk-windows_linux-public.tar.gz"
       arches:
-        description: "架构，逗号分隔：arm64-v8a,x86_64（默认仅 arm64-v8a）"
+        description: "架构，逗号分隔：x86_64,arm64-v8a（留空=全部）"
         required: false
-        default: "arm64-v8a"
+        default: ""
       modes:
         description: "debug/release（留空=脚本默认全编排）"
         required: false
@@ -46,8 +46,11 @@ jobs:
   build:
     needs: config
     name: ${{ matrix.arch }}
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -60,37 +63,39 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/ohos-sdk-native
-          key: ohos-sdk-native-6.0.0.2
+          key: ohos-sdk-native-6.1-LTS-windows
 
-      - name: Download & extract OHOS SDK (native)
+      - name: Download & extract OHOS SDK (windows native)
         if: steps.sdk-cache.outputs.cache-hit != 'true'
         run: |
-          cd $RUNNER_TEMP
-          wget -q "${{ inputs.sdk-url }}" -O ohos-sdk.tar.gz
-          # 外层 tar 内是 linux/windows 两份；取 linux 包再解出 native/
+          cd "$RUNNER_TEMP"
+          # 外层包结构（6.1-LTS 与 6.0.x 相同）：tar 解出 ohos-sdk/windows/
+          # ohos-sdk/linux/，windows/ 下是各组件 zip（native-windows-x64-*.zip）
+          curl -fsSL "${{ inputs.sdk-url }}" -o ohos-sdk.tar.gz
           tar -xzf ohos-sdk.tar.gz
-          LINUX_TGZ=$(find . -name "ohos-sdk-full-linux-*.tar.gz" | head -1)
-          if [ -n "$LINUX_TGZ" ]; then tar -xzf "$LINUX_TGZ"; fi
-          NATIVE_DIR=$(find . -type d -name native | grep -i linux | head -1)
-          if [ -z "$NATIVE_DIR" ]; then NATIVE_DIR=$(find . -type d -name native | head -1); fi
-          # CI-PATCH: NATIVE_DIR 为空时 `cp -r "$NATIVE_DIR"/*` 会退化为
-          # `cp -r /*`——把 /boot /etc /dev 整个根文件系统拷进
-          # ~/ohos-sdk-native（CI 实测刷屏 Permission denied 后 job 失败）。
-          # 必须在空值时立即报错并列出实际目录结构，绝不带空变量继续。
+          NATIVE_ZIP=$(find . -type f -name "native*windows*.zip" | head -1)
+          if [ -z "$NATIVE_ZIP" ]; then
+            echo "[ERROR] 未找到 windows native 组件 zip，实际结构如下："
+            find . -maxdepth 4 \( -type d -o -name "*.zip" -o -name "*.tar.gz" \) | head -40
+            exit 1
+          fi
+          echo "NATIVE_ZIP=$NATIVE_ZIP"
+          unzip -q "$NATIVE_ZIP"
+          NATIVE_DIR=$(find . -maxdepth 4 -type d -name native | grep -i windows | head -1)
+          if [ -z "$NATIVE_DIR" ]; then NATIVE_DIR=$(find . -maxdepth 4 -type d -name native | head -1); fi
           if [ -z "$NATIVE_DIR" ]; then
-            echo "[ERROR] 解包后未找到 native 目录，实际结构如下："
-            find . -maxdepth 3 -type d | head -30
+            echo "[ERROR] 解包后仍未找到 native 目录，实际结构如下："
+            find . -maxdepth 4 -type d | head -30
             exit 1
           fi
           echo "NATIVE_DIR=$NATIVE_DIR"
           mkdir -p ~/ohos-sdk-native
-          # /. 结尾拷贝目录内容本身，且此时 NATIVE_DIR 已保证非空
           cp -r "$NATIVE_DIR"/. ~/ohos-sdk-native/
           echo "SDK native contents:" && ls ~/ohos-sdk-native | head
 
       - name: Build all libraries (incl. SDL3 shared for static packaging)
         run: |
-          CMD="python3 .github/scripts/ci_build.py --platform OPHM --arch ${{ matrix.arch }} --ohos-sdk \"$HOME/ohos-sdk-native\""
+          CMD="python .github/scripts/ci_build.py --platform OPHM --arch ${{ matrix.arch }} --ohos-sdk \"$HOME/ohos-sdk-native\""
           if [ -n "${{ inputs.modes }}" ]; then CMD="$CMD --modes ${{ inputs.modes }}"; fi
           if [ -n "${{ inputs.libtypes }}" ]; then CMD="$CMD --libtypes ${{ inputs.libtypes }}"; fi
           if [ -n "${{ inputs.groups }}" ]; then CMD="$CMD --groups ${{ inputs.groups }}"; fi

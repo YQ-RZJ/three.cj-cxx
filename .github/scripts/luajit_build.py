@@ -526,7 +526,14 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
             host_cc = host_cc + " -isysroot " + host_isysroot
         # 注意：sysroot 必须在 Python 侧解析后拼进 TARGET_CC，
         # 不能写成 $(xcrun ...) —— 那会被 make 当作变量引用展开为空。
-        target_cc = base + " -isysroot " + sdk_path + " --target=" + target
+        # CI-PATCH: iOS SDK 显式标记 system() 为 unavailable，lib_os.c:52
+        # 的 os_execute 编译报错（CI 实测 'system' is unavailable: not
+        # available on iOS）。上游在 LJ_TARGET_IOS 探测命中时自动置
+        # LJ_NO_SYSTEM=1 走 ENOSYS 桩（lj_arch.h），但探测链依赖
+        # TargetConditionals/版本宏，这里直接显式定义，路径与上游桩一致
+        # （命令行与头文件重复定义同值 1 合法）。
+        target_cc = base + " -isysroot " + sdk_path + " --target=" + target \
+            + " -DLJ_NO_SYSTEM=1"
     else:
         raise RuntimeError("不支持的平台: %s" % platform)
 

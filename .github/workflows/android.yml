@@ -6,7 +6,7 @@ on:
       ndk-version:
         description: "Android NDK 固定版本（runner 上安装该版本）"
         required: false
-        default: "r27c"
+        default: "r23c"
       arches:
         description: "架构，逗号分隔：x86_64,arm64-v8a（留空=全部）"
         required: false
