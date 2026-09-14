@@ -350,10 +350,14 @@ def can_build(platform, host, ctx):
 
 
 def toolchains_for(platform, host, libtype=None):
-    """每个平台候选工具链（按优先级）：WINDOWS 主机上 msvc 优先，失败回退 mingw"""
+    """每个平台候选工具链（按优先级）：WINDOWS 主机上 mingw 优先，失败回退 msvc"""
     _ = libtype
     if platform == "WINDOWS" and host == "WINDOWS":
-        return ["msvc", "mingw"]
+        # CI-PATCH: 统一 MinGW 优先——ci_deps 依赖库的工具链必须一致
+        # （MSVC .lib 与 MinGW 的 C++ name mangling 不兼容：MS 是
+        # ?xxx@bgfx@@、MinGW 是 _ZN4bgfx…，混用链接必出 undefined
+        # reference，windows x86_64 imgui job 实测）。
+        return ["mingw", "msvc"]
     return ["clang"]
 
 

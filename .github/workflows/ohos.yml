@@ -111,8 +111,11 @@ jobs:
             powershell.exe -NoProfile -Command "Expand-Archive -LiteralPath '$ZWIN_FILE' -DestinationPath '$ZWIN' -Force" || {
               echo "[ERROR] Expand-Archive 解压失败（zip=$ZWIN_FILE dest=$ZWIN）"; exit 1; }
           fi
-          NATIVE_DIR=$(find . -maxdepth 4 -type d -name native | grep -i windows | head -1)
-          if [ -z "$NATIVE_DIR" ]; then NATIVE_DIR=$(find . -maxdepth 4 -type d -name native | head -1); fi
+          # CI-PATCH: 组件 zip 解出的顶层目录就是 native/（7z 实测 27777
+          # 文件全部落在 native/ 下，路径不含 "windows" 字样）——旧 find
+          # 后跟 grep -i windows 永远空匹配；pipefail 下 grep 空匹配直接
+          # 终结脚本（7z 成功后无声 exit 1 的元凶）。直接找 native 目录。
+          NATIVE_DIR=$(find . -maxdepth 4 -type d -name native | head -1)
           if [ -z "$NATIVE_DIR" ]; then
             echo "[ERROR] 解包后仍未找到 native 目录，实际结构如下："
             find . -maxdepth 4 -type d | head -30

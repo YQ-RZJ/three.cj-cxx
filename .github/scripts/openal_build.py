@@ -515,9 +515,10 @@ def can_build(platform, host, ctx):
 def toolchains_for(platform, host, libtype):
     """每个平台候选工具链（按优先级）：WINDOWS 主机上静态库优先 mingw，其余 msvc 优先，失败回退另一工具链"""
     if platform == "WINDOWS" and host == "WINDOWS":
-        if libtype == "static":
-            return ["mingw", "msvc"]
-        return ["msvc", "mingw"]
+        # CI-PATCH: 统一 MinGW 优先（不分 libtype）——ci_deps 依赖库的
+        # 工具链必须一致，MSVC .lib 与 MinGW 的 C++ name mangling 不兼容
+        # （?xxx@bgfx@@ vs _ZN4bgfx…），混用链接必出 undefined reference。
+        return ["mingw", "msvc"]
     return ["native"]
 
 

@@ -483,11 +483,11 @@ def can_build(platform, host, ctx):
 # ---------------------------------------------------------------------------
 def toolchains_for(platform, host, libtype="shared", arch="x86_64", ctx=None):
     if platform == "WINDOWS" and host == "WINDOWS":
-        if libtype == "static":
-            return ["mingw", "msvc"]
-        if arch == "arm64-v8a" and not vs_has_arm64():
-            return ["mingw"]
-        return ["msvc", "mingw"]
+        # CI-PATCH: 统一 MinGW 优先（不分 libtype/arch）——ci_deps 依赖
+        # 库的工具链必须一致，MSVC .lib 与 MinGW 的 C++ name mangling
+        # 不兼容（?xxx@bgfx@@ vs _ZN4bgfx…），混用链接必出 undefined
+        # reference。
+        return ["mingw", "msvc"]
     return ["native"]
 
 

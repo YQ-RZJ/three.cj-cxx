@@ -543,9 +543,12 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
     dyncc = target_cc
     if platform in ("ANDROID", "OPHM"):
         dyncc = target_cc + " -fPIC"
-    elif platform == "LINUX" and arch == "arm64-v8a":
-        # CI-PATCH: 同上 —— 覆盖 TARGET_DYNCC 后 Makefile 默认的
-        # DYNAMIC_CC=...-fPIC 不再生效，交叉构建 shared 需显式补 -fPIC
+    elif platform == "LINUX":
+        # CI-PATCH: 覆盖 TARGET_DYNCC 后 Makefile 默认的 DYNAMIC_CC=
+        # ...-fPIC 不再生效，shared 构建需显式补 -fPIC——不分架构
+        # （x86_64 本机构建同样需要：CI 实测 lj_err.o 缺 -fPIC 报
+        # "relocation R_X86_64_TPOFF32 against 'static_uex' can not be
+        # used when making a shared object"，DYNLINK libluajit.so 失败）
         dyncc = target_cc + " -fPIC"
     elif platform == "IOS":
         # CI-PATCH: 同上 —— IOS 覆盖 TARGET_DYNCC 后需补 -fPIC（macOS
