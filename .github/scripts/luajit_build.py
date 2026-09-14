@@ -483,7 +483,15 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
         cross = "--target=" + target + " --sysroot=" + sysroot
         target_cc = cc + " " + cross
     elif platform == "LINUX":
-        target_cc = "cc"
+        # CI-PATCH: x86_64 runner 上构建 arm64-v8a 是交叉编译（linux.yml 已装
+        # gcc-aarch64-linux-gnu），必须用三元组前缀编译器 —— 裸 cc 会让 LuaJIT
+        # 按宿主 x64 配置（vm_x64.dasc），链接 .so 时报
+        # "R_X86_64_TPOFF32 ... recompile with -fPIC"
+        if arch == "arm64-v8a":
+            cross = find_tool("aarch64-linux-gnu-gcc") or "aarch64-linux-gnu-gcc"
+            target_cc = cross
+        else:
+            target_cc = "cc"
     elif platform == "BSD":
         target_cc = "cc"
     elif platform == "OSX":
@@ -521,6 +529,10 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
     # 但命令行覆盖 TARGET_DYNCC 后必须自己补上）。
     dyncc = target_cc
     if platform in ("ANDROID", "OPHM"):
+        dyncc = target_cc + " -fPIC"
+    elif platform == "LINUX" and arch == "arm64-v8a":
+        # CI-PATCH: 同上 —— 覆盖 TARGET_DYNCC 后 Makefile 默认的
+        # DYNAMIC_CC=...-fPIC 不再生效，交叉构建 shared 需显式补 -fPIC
         dyncc = target_cc + " -fPIC"
     vars = [
         "HOST_CC=" + host_cc,
@@ -576,6 +588,14 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
                 ar = os.path.join(bin_dir, pre + "ar" + exe)
         vars.append("TARGET_AR=" + ar + " rcus")
         vars.append("TARGET_LD=" + target_cc)
+        vars.append("TARGET_STRIP=" + strip)
+    elif platform == "LINUX" and arch == "arm64-v8a":
+        # CI-PATCH: x86_64 宿主上交叉构建 arm64-v8a —— Makefile 默认
+        # TARGET_LD=$(CROSS)$(CC)=宿主 gcc，链接 arm64 ELF 报
+        # "Relocations in generic ELF" → 必须用交叉编译器链接
+        vars.append("TARGET_LD=" + target_cc)
+        # 同理 strip 也默认宿主 strip，改用三元组工具（不存在时保持原值让报错可见）
+        strip = find_tool("aarch64-linux-gnu-strip") or "aarch64-linux-gnu-strip"
         vars.append("TARGET_STRIP=" + strip)
     if mode == "debug":
         vars.append("CCDEBUG=-g")
