@@ -410,6 +410,34 @@ def main():
     run(collect, env)
     print(f"[ci] DONE {plat} {args.arch} -> dist/{os_dir}/{args.arch}/{{static,shared}}")
 
+    # ---- 最终压缩包：包内加系统目录层 + 按平台选压缩格式 ----
+    # 用户约定：进入压缩包先见 <os>/ 目录（native-libs-<os>-<arch> 已带
+    # 平台名，包内再分层便于与其他 artifact 解压混放）；压缩格式按平台
+    # 惯例——windows 用 .zip（Explorer 原生支持），linux/macos 及交叉
+    # 目标（android/ohos/ios）用 .tar.gz（保留权限位，系统原生解压）。
+    src_tree = os.path.join(DIST_ROOT, os_dir)
+    if not os.path.isdir(src_tree):
+        print(f"[ci] WARN 未找到归包目录 {src_tree}，跳过最终打包")
+        return
+    import tarfile
+    import zipfile as _zipfile
+    if plat == "WINDOWS":
+        final = os.path.join(DIST_ROOT, f"native-libs-windows-{args.arch}.zip")
+        if os.path.isfile(final):
+            os.remove(final)
+        with _zipfile.ZipFile(final, "w", _zipfile.ZIP_DEFLATED) as z:
+            for root, _dirs, files in os.walk(src_tree):
+                for f in files:
+                    full = os.path.join(root, f)
+                    z.write(full, os.path.relpath(full, DIST_ROOT))  # <os>/...
+    else:
+        final = os.path.join(DIST_ROOT, f"native-libs-{os_dir}-{args.arch}.tar.gz")
+        if os.path.isfile(final):
+            os.remove(final)
+        with tarfile.open(final, "w:gz") as t:
+            t.add(src_tree, arcname=os_dir)  # 包内 <os>/<arch>/...
+    print(f"[ci] 最终压缩包: {final}")
+
 
 if __name__ == "__main__":
     main()
