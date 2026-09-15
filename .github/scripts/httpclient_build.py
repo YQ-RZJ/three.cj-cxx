@@ -429,10 +429,17 @@ def collect_outputs(ssl_dir, platform, arch, libtype):
                     rel = os.path.relpath(full, ssl_dir)
                     headers.append((full, rel))
 
-    # tlsbridge 库
-    tlsbridge_lib = os.path.join(BUILD_DIR, "tlsbridge", "libtlsbridge.a")
-    if os.path.isfile(tlsbridge_lib):
-        libs.append((tlsbridge_lib, os.path.join("lib", "libtlsbridge.a")))
+    # tlsbridge 库（CI-PATCH: 按平台收 libtype 对应产物——shared 为
+    # .so/.dll/.dylib，static 为 .a；上一版硬编码 .a 导致 shared 配置
+    # 下 zip 里出现静态库，ohos job 实测）
+    if libtype == "shared":
+        tlsbridge_names = ["libtlsbridge.so", "libtlsbridge.dll", "libtlsbridge.dylib"]
+    else:
+        tlsbridge_names = ["libtlsbridge.a"]
+    for nm in tlsbridge_names:
+        tlsbridge_lib = os.path.join(BUILD_DIR, "tlsbridge", nm)
+        if os.path.isfile(tlsbridge_lib):
+            libs.append((tlsbridge_lib, os.path.join("lib", nm)))
 
     # tlsbridge 头文件
     tlsbridge_header = os.path.join(TLSBRIDGE_DIR, "api.h")
@@ -489,9 +496,19 @@ def resolve_mingw(args):
     """探测 MinGW-w64 工具链路径。"""
     # CI-PATCH: 候选含 GitHub runner 的 msys2 布局（C:\msys64\mingw64）
     # 与 MINGW_PREFIX 环境变量（msys2/setup-msys2 action 会注入）
+    _msys2_root = os.environ.get("MSYS2_ROOT")
     candidates = [
         args.mingw,
         os.environ.get("MINGW_PREFIX"),
+        # CI-PATCH: setup-msys2 的 location=C:\msys2-full（windows.yml/
+        # ohos.yml 固定安装根）——两种布局都要覆盖：SFX 解包带 msys64
+        # 一级前缀（实际为 <root>\msys64\mingw64，windows x86 job 实测
+        # MSYS2 解析为 C:\msys2-full\msys64），location 生效时为
+        # <root>\mingw64。
+        os.path.join(_msys2_root, "msys64", "mingw64") if _msys2_root else None,
+        os.path.join(_msys2_root, "mingw64") if _msys2_root else None,
+        r"C:\msys2-full\msys64\mingw64",
+        r"C:\msys2-full\mingw64",
         r"D:\Venv\C_Cpp\llvm-mingw",          # 通用，同时支持 x86_64 + arm64-v8a
         r"D:\Venv\C_Cpp\mingw-w64\mingw64_15.2.0",
         r"D:\Venv\C_Cpp\mingw-w64\mingw64",
@@ -1109,7 +1126,7 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
 # ---------------------------------------------------------------------------
 # tlsbridge 编译
 # ---------------------------------------------------------------------------
-def build_tlsbridge(platform, arch, mode, host, ctx, ssl_dir, log_path):
+def build_tlsbridge(platform, arch, mode, host, ctx, ssl_dir, log_path, libtype="static"):
     """
     编译 tlsbridge 包装库。
     将 tlsbridge/*.c 编译为静态库 libtlsbridge.a，
@@ -1191,6 +1208,35 @@ def build_tlsbridge(platform, arch, mode, host, ctx, ssl_dir, log_path):
         if run(cmd, cwd=SCRIPT_DIR, log=log_path) != 0:
             print("  [ERROR] 编译 %s 失败" % os.path.basename(src))
             return False
+
+    # CI-PATCH: shared 模式编动态库（libtlsbridge.so/dll/dylib）——上一版
+    # 无条件归档静态库，libtype=shared 配置下 zip 里仍出现 libtlsbridge.a
+    # （ohos job 实测）。链接期解析 libcrypto/libssl（OpenSSL 同为 shared
+    # 产物，在 ssl_dir 下）。Windows mingw 产物名 libtlsbridge.dll，非
+    # Windows 按平台 .so/.dylib；加载期由运行时按 rpath/同目录解析。
+    if libtype == "shared":
+        if platform == "WINDOWS":
+            dll_path = os.path.join(tlsbridge_out, "libtlsbridge.dll")
+        elif platform == "OSX" or platform == "IOS":
+            dll_path = os.path.join(tlsbridge_out, "libtlsbridge.dylib")
+        else:
+            dll_path = os.path.join(tlsbridge_out, "libtlsbridge.so")
+        link_cmd = [cc, "-shared", "-o", dll_path] + obj_files + ssl_libs.split()
+        # CI-PATCH2: Windows 动态链接必须解析 tlsbridge 引用的
+        # pthread_mutex_lock/unlock——llvm-mingw 的 pthread 实现在
+        # winpthreads 里，需显式 -lpthread（windows arm64 job 实测
+        # undefined symbol；静态归档不做链接所以 static 模式从不暴露）
+        if platform == "WINDOWS":
+            link_cmd += ["-lpthread"]
+        # $ORIGIN rpath 仅 ELF（Linux/Android/OHOS）有效；macOS/Windows
+        # 运行时按同目录/PATH 解析，传 $ORIGIN 会被当字面量
+        if platform not in ("WINDOWS", "OSX", "IOS"):
+            link_cmd += ["-Wl,-rpath,$ORIGIN"]
+        if run(link_cmd, cwd=SCRIPT_DIR, log=log_path) != 0:
+            print("  [ERROR] 创建 %s 失败" % os.path.basename(dll_path))
+            return False
+        print("  [OK] tlsbridge 编译完成: %s" % dll_path)
+        return True
 
     # 链接为静态库
     lib_path = os.path.join(tlsbridge_out, "libtlsbridge.a")
@@ -1446,6 +1492,7 @@ def main():
                             log_path = os.path.join(LOG_DIR, "tlsbridge-%s.log" % combo)
                             if not build_tlsbridge(
                                 platform, arch, mode, host, ctx, OPENSSL_DIR, log_path,
+                                libtype,
                             ):
                                 any_failed = True
                                 results.append((combo, "fail", "tlsbridge 编译失败"))

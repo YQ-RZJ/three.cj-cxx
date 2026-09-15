@@ -131,7 +131,17 @@ if(WIN32)
 	set(SHADERC_CAPI_GLSLANG 0)
 else()
 	set(SHADERC_CAPI_D3DCOMPILER 0)
-	set(SHADERC_CAPI_GLSLANG 1)
+	# CI-PATCH: glslang/spirv-cross targets 只在 BGFX_BUILD_TOOLS_SHADER=ON
+	# 时才被定义（bgfx4cj 统一 BGFX_BUILD_TOOLS=OFF）——GLSLANG=1 会让
+	# shaderc_spirv.cpp/shaderc_metal.cpp 引用 spirv_cross:: 符号，shared
+	# 链接 libshaderc_capi.dylib 时无库可解析，报 Undefined symbols
+	# （macos x86_64 job 实测；Windows 靠 GLSLANG=0 桩躲过）。无 target
+	# 时降级走 #else 桩，与 Windows 同策略。
+	if(TARGET spirv-cross AND TARGET glslang)
+		set(SHADERC_CAPI_GLSLANG 1)
+	else()
+		set(SHADERC_CAPI_GLSLANG 0)
+	endif()
 endif()
 
 target_compile_definitions(shaderc_capi PRIVATE

@@ -280,6 +280,13 @@ def probe_emsdk(emsdk):
     raise RuntimeError("无法在 emsdk 中找到 emcc/em++: %s" % emsdk)
 
 
+def _fwd(p):
+    """CI-PATCH: 路径统一正斜杠——含空格的 Windows 路径（C:\\Program
+    Files\\...）以反斜杠形态写入 CMake cache 时 "\\P" 被当转义解析报
+    Syntax error（本机实测 mingw/ohos 均踩过）；正斜杠 Windows 原生兼容。"""
+    return p.replace("\\", "/") if p else p
+
+
 def find_tool(name):
     """在 PATH 中查找工具，返回完整路径或 None"""
     exe = name if name.endswith(exe_suffix()) else name + exe_suffix()
@@ -306,11 +313,11 @@ def probe_mingw(arch, mingw_dir):
             cxx = os.path.join(bin_dir, gxx_name)
             if not os.path.exists(cxx):
                 cxx = os.path.join(bin_dir, pre + "clang++" + exe_suffix())
-            return cc, cxx, cc
+            return _fwd(cc), _fwd(cxx), _fwd(cc)
     gcc = find_tool(gcc_name)
     gxx = find_tool(gxx_name)
     if gcc and gxx:
-        return gcc, gxx, gcc
+        return _fwd(gcc), _fwd(gxx), _fwd(gcc)
     return None
 
 
@@ -471,12 +478,17 @@ def cmake_config(platform, mode, arch, libtype, toolchain, host, ctx):
                 raise RuntimeError("缺少 %s 的 mingw-w64 工具链" % arch)
             cc, cxx, _ld = tc
             cache["CMAKE_SYSTEM_NAME"] = "Windows"
+            # CI-PATCH: 显式设置 CMAKE_SYSTEM_NAME 后 CMake 不再自动探测
+            # 处理器架构，CMAKE_SYSTEM_PROCESSOR 为空——bx.cmake 的
+            # -msse4.2 注入条件匹配失败，bx 编译报 _mm_round_ps
+            # "target specific option mismatch"（本机实测）。显式补齐。
+            cache["CMAKE_SYSTEM_PROCESSOR"] = "x86_64" if arch == "x86_64" else "aarch64"
             cache["CMAKE_C_COMPILER"] = cc
             cache["CMAKE_CXX_COMPILER"] = cxx
-            cache["CMAKE_MAKE_PROGRAM"] = find_tool("mingw32-make") or find_tool("make")
+            cache["CMAKE_MAKE_PROGRAM"] = _fwd(find_tool("mingw32-make") or find_tool("make"))
             mk = find_tool("ninja")
             if mk:
-                cache["CMAKE_MAKE_PROGRAM"] = mk
+                cache["CMAKE_MAKE_PROGRAM"] = _fwd(mk)
             # CI-PATCH: MinGW shared 构建必须 --export-all-symbols——
             # bgfx.cmake 的 WINDOWS_EXPORT_ALL_SYMBOLS 只对 MSVC 生效，
             # MinGW/ld 默认仅导出 dllexport 符号（本机实测：libbgfx.dll
@@ -571,12 +583,26 @@ def build_env(env_over):
 
 
 def cmake_generator(toolchain):
-    """选择生成器：msvc 用 VS 生成器，其余用 Ninja（缺则回退 Unix Makefiles）"""
-    if toolchain == "msvc":
-        return None  # 让 CMake 自选最新的 Visual Studio 生成器
-    if find_tool("ninja"):
-        return "Ninja"
-    return "Unix Makefiles"
+    """选择生成器：msvc 显式探测 CMake 支持的最高 VS 生成器，其余用 Ninja
+    （缺则回退 Unix Makefiles）"""
+    if toolchain != "msvc":
+        if find_tool("ninja"):
+            return "Ninja"
+        return "Unix Makefiles"
+    # CI-PATCH: 不再让 CMake 自选——本机实测 CMake 3.28 不认识
+    # "Visual Studio 18 2026"，自选落到 NMake Makefiles，与 -A 平台
+    # 参数不兼容报 "does not support platform specification"。
+    # 从 cmake --help 里按新到旧探测可用 VS 生成器，选命中的最高版。
+    try:
+        help_out = subprocess.run([cmake_path(), "--help"],
+                                  capture_output=True, text=True).stdout
+    except OSError:
+        help_out = ""
+    for g in ("Visual Studio 18 2026", "Visual Studio 17 2022",
+              "Visual Studio 16 2019"):
+        if g in help_out:
+            return g
+    return None  # 无 VS 生成器可用（调用方跳过 -A，报错信息由 cmake 给出）
 
 
 # ---------------------------------------------------------------------------
@@ -597,8 +623,9 @@ def build_one(platform, mode, arch, libtype, toolchain, host, args, ctx, log_pat
     cmd = [cmake, "-S", SRC_DIR, "-B", build_dir]
     if gen:
         cmd += ["-G", gen]
-    # msvc：指定 VS 主机/目标平台
-    if toolchain == "msvc" and platform == "WINDOWS":
+    # msvc：仅 VS 生成器支持 -A 主机/目标平台（NMake 等命令行生成器
+    # 传 -A 报 "does not support platform specification"）
+    if toolchain == "msvc" and platform == "WINDOWS" and gen and gen.startswith("Visual Studio"):
         cmd += ["-A", "x64" if arch == "x86_64" else "ARM64"]
     for k, v in cache.items():
         cmd += ["-D%s=%s" % (k, v)]

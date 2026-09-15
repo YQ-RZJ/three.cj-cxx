@@ -163,7 +163,11 @@ def is_windows():
 
 def find_tool(name):
     p = shutil.which(name)
-    return os.path.abspath(p) if p else None
+    # CI-PATCH: 统一正斜杠——abspath 返回反斜杠路径，含空格的 Windows
+    # 路径（C:\Program Files\...）拼进 -DCMAKE_C_COMPILER= 写入 CMake
+    # cache 时 "\P" 被当转义解析报 Syntax error（与 bgfx_build 同款，
+    # 本机 sdl mingw 实测）；正斜杠 Windows 原生兼容。
+    return os.path.abspath(p).replace("\\", "/") if p else None
 
 
 _BATCH_FLAG = False
@@ -540,11 +544,18 @@ def package(platform, mode, arch, libtype, build_dir, dist_dir):
     zip_path = os.path.join(dist_dir, name + ".zip")
 
     # 收集本组合构建目录下的库产物
+    # CI-PATCH: 排除 SDL 的内部中间库——SDL_uclibc 是 SDL 故意编的静态
+    # 中间产物（CMakeLists 注释明说"让未用符号不进 SDL3 动态库"），仅
+    # 参与链接、不属于交付物（ohos job 实测被打进 zip 报告为"编译成了
+    # .a"的库）；按目标名前缀排除，不误伤 libSDL3 主体产物。
     lib_files = []
     for root, _dirs, files in os.walk(build_dir):
         for f in files:
-            if f.endswith(LIB_EXTENSIONS):
-                lib_files.append(os.path.join(root, f))
+            if not f.endswith(LIB_EXTENSIONS):
+                continue
+            if f.startswith("SDL_uclibc"):
+                continue
+            lib_files.append(os.path.join(root, f))
     if not lib_files:
         print("  [WARN] 未找到库产物, 跳过打包")
         return None

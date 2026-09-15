@@ -64,13 +64,62 @@ if(REQUIRECJ_FFI_SHARED)
             target_link_libraries(requirecj_ffi PRIVATE cangjie-runtime cangjie-trace)
         endif()
     else()
-        # 未指定仓颉运行时库路径，允许未解析符号
-        if(MSVC)
-            target_link_options(requirecj_ffi PRIVATE /FORCE:UNRESOLVED)
+        # CI-PATCH: 未指定运行时库路径时的分平台处理。PE 目标（Windows）
+        # 不允许未解析符号：MinGW 的 GNU ld PE 后端不支持 ELF 专属的
+        # --unresolved-symbols=ignore-all（windows job 实测 undefined
+        # reference），MSVC /FORCE:UNRESOLVED 产物 "image may not run"
+        # （LNK4088）。正规解法是导入桩：dlltool/lib.exe 按 .def 生成
+        # 空导入库（导入表项指向 libcangjie-runtime.dll），链接期挂上
+        # 即产生正确的导入表，加载期由宿主侧运行时 DLL 解析。非 Windows
+        # 保持 allow-shlib-undefined / ignore-all（ELF/Mach-O 语义）。
+        if(MSVC OR MINGW OR WIN32)
+            set(_STUB_DEF "${CMAKE_CURRENT_SOURCE_DIR}/cangjie-runtime-stub.def")
+            set(_STUB_LIB "${CMAKE_CURRENT_BINARY_DIR}/cangjie-runtime-stub.lib")
+            if(MSVC)
+                # CI-PATCH: /machine 必须跟目标架构一致——arm64 job 实测
+                # 硬编码 X64 生成 x64 桩库，链接报 LNK4272 machine type
+                # 'x64' conflicts with 'ARM64' 后 11 个符号全部 unresolved
+                if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64|aarch64)")
+                    set(_LIB_MACHINE ARM64)
+                else()
+                    set(_LIB_MACHINE X64)
+                endif()
+                add_custom_command(OUTPUT "${_STUB_LIB}"
+                    COMMAND lib /def:"${_STUB_DEF}" /machine:${_LIB_MACHINE}
+                            /out:"${_STUB_LIB}" /nologo
+                    DEPENDS "${_STUB_DEF}"
+                    COMMENT "lib.exe: 生成仓颉运行时导入桩 ${_STUB_LIB}")
+            else()
+                # MinGW: dlltool 从 .def 生成导入库。CI-PATCH: llvm-mingw
+                # 的 llvm-dlltool 不认 GNU binutils 的 --def/--output-lib
+                # 长选项（直接打 USAGE 退出，windows arm64 job 实测），用
+                # -d/-l 短选项；且必须显式 -m 指定目标机器（llvm-dlltool
+                # 默认 x86，arm64 工具链不传会生成错误机器类型的桩），
+                # 从编译器目标推机器类型。
+                find_program(DLLTOOL_EXE dlltool)
+                if(NOT DLLTOOL_EXE)
+                    message(FATAL_ERROR "MinGW 构建需要 dlltool（binutils）生成仓颉运行时导入桩")
+                endif()
+                if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|ARM64|arm64)")
+                    set(_DLLTOOL_MACHINE arm64)
+                elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x64)")
+                    set(_DLLTOOL_MACHINE i386:x86-64)
+                else()
+                    set(_DLLTOOL_MACHINE i386)
+                endif()
+                add_custom_command(OUTPUT "${_STUB_LIB}"
+                    COMMAND "${DLLTOOL_EXE}" -d "${_STUB_DEF}"
+                            -l "${_STUB_LIB}" -m "${_DLLTOOL_MACHINE}"
+                    DEPENDS "${_STUB_DEF}"
+                    COMMENT "dlltool: 生成仓颉运行时导入桩 ${_STUB_LIB}")
+            endif()
+            add_custom_target(cangjie_runtime_stub DEPENDS "${_STUB_LIB}")
+            add_dependencies(requirecj_ffi cangjie_runtime_stub)
+            target_link_libraries(requirecj_ffi PRIVATE "${_STUB_LIB}")
         elseif(APPLE)
             target_link_options(requirecj_ffi PRIVATE -undefined dynamic_lookup)
         else()
-            # GCC/Clang: 允许未解析符号（Linux/Android/OHOS）。
+            # GCC/Clang (ELF): 允许未解析符号（Linux/Android/OHOS）。
             # CI-PATCH: Android NDK 工具链默认追加 -Wl,--no-undefined，而
             # --allow-shlib-undefined 是另一个独立开关，抵消不了它——
             # InitCJRuntime 等由仓颉运行时 .so 在运行时提供的符号会在

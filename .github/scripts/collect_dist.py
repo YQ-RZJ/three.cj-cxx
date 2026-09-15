@@ -35,12 +35,21 @@ STATIC_EXT = {".a", ".lib"}
 SHARED_EXT = {".so", ".dll", ".dylib"}
 # 导入库/调试伴随文件，跟随其主库类型归档
 SIDE_EXT = {".pdb", ".exp", ".def"}
+# CI-PATCH2: 归包白名单——只收库产物与链接副产物，组 zip 里的头文件/
+# 源码/工具脚本一律不入（shared/ 混 674 个 .h + 28 个 .cpp 的实测教训）
+LIB_ARTIFACT_EXTS = tuple(STATIC_EXT | SHARED_EXT | SIDE_EXT)
 
 
 def classify(name: str, forced: str) -> str:
     ext = os.path.splitext(name)[1].lower()
+    low = name.lower()
     if forced in ("static", "shared"):
         return forced
+    # CI-PATCH: MinGW 导入库（libfoo.dll.a）是链接期伴随 DLL 的导入库，
+    # 消费 shared 链接用——归 shared 而非按 .a 误入 static
+    # （windows job 实测 libdlbridge.dll.a / librequirecj_ffi.dll.a 落错）
+    if low.endswith(".dll.a") or low.endswith(".dll.lib"):
+        return "shared"
     if ext in STATIC_EXT:
         return "static"
     if ext in SHARED_EXT:
@@ -54,8 +63,11 @@ def main():
                     help="目标系统目录名：linux/windows/macos/android/ohos/ios")
     ap.add_argument("--arch", required=True, help="架构目录名：x86_64 / arm64-v8a")
     ap.add_argument("--out", default="dist", help="归包根目录（默认 dist/）")
-    ap.add_argument("--libtype", choices=["static", "shared"], default=None,
-                    help="强制分类（无扩展名可判别时使用）")
+    ap.add_argument("--libtype", default=None,
+                    # CI-PATCH: 允许多值（CI 双模式传 static,shared）——旧
+                    # choices=["static","shared"] 会 argparse 报 invalid
+                    # choice 直接退出；歧义消解只看是否含 "shared"
+                    help="库类型：static / shared，可逗号分隔多值")
     ap.add_argument("--src", action="append", default=[],
                     help="产物来源目录，可多次指定；递归收集其中的库文件")
     ap.add_argument("--zip", action="append", default=[],
@@ -87,9 +99,20 @@ def main():
         if not os.path.isfile(zp):
             print(f"[collect] skip missing zip: {zp}")
             continue
+        # CI-PATCH: 按 zip 名中的库类型标记分子目录解包——组脚本命名约定
+        # <name>-<static|shared>-<toolchain>.zip。MSVC 的 .lib 歧义（导入
+        # 库 vs 真静态库扩展名相同）靠这个 per-file forced 消解：shared
+        # zip 里的 .lib 是 DLL 导入库，归 shared。
+        base = os.path.basename(zp).lower()
+        if "-static-" in base or base.endswith("-static.zip"):
+            sub = "static"
+        elif "-shared-" in base or base.endswith("-shared.zip"):
+            sub = "shared"
+        else:
+            sub = "plain"
         try:
             with zipfile.ZipFile(zp) as z:
-                z.extractall(tmp_unzip)
+                z.extractall(os.path.join(tmp_unzip, sub))
         except zipfile.BadZipFile:
             print(f"[collect] WARN 损坏的 zip，跳过: {zp}")
             continue
@@ -101,14 +124,37 @@ def main():
         if not os.path.isdir(src):
             print(f"[collect] skip missing: {src}")
             continue
+        # CI-PATCH: 来自 zip 解包的文件按其子目录（static/shared/plain）
+        # 派生 forced 分类——消解 .lib 的扩展名歧义（导入库 vs 真静态库）；
+        # .exp/.pdb 副产物跟随所在 zip 的库类型归 shared/static。
         for root, _dirs, files in os.walk(src):
+            forced = ""
+            rel = os.path.relpath(root, src).replace("\\", "/").lower()
+            if rel == "static" or rel.startswith("static/"):
+                forced = "static"
+            elif rel == "shared" or rel.startswith("shared/"):
+                forced = "shared"
             for fn in files:
-                kind = classify(fn, args.libtype or "")
-                ext = os.path.splitext(fn)[1].lower()
-                if not kind and ext not in SIDE_EXT:
+                low = fn.lower()
+                # CI-PATCH2: 只收库产物与链接副产物——组 zip 里的头文件/
+                # 源码/工具脚本（.h/.hpp/.cpp/.lua/.f90/...）一律不入归包
+                # （上一版把 args.libtype 当全局 forced，shared 配置下
+                # 674 个 .h + 28 个 .cpp 全部混进 shared/，windows job
+                # 实测）；args.libtype 只用于消解 .lib 的歧义。
+                if not low.endswith(LIB_ARTIFACT_EXTS):
                     continue
-                sub = "static" if kind == "static" or (not kind and ext in SIDE_EXT
-                                                       and classify(fn.replace(".pdb", ".a").replace(".exp", ".a"), "") == "static") else "shared"
+                kind = classify(fn, forced)
+                if not kind and low.endswith(".lib"):
+                    # CI-PATCH3: .lib 歧义消解兼容多值 libtype——CI 双模式
+                    # 跑 --libtype static,shared 时旧判断 in ("static",
+                    # "shared") 不命中，stub.lib 等导入库回落 static 落错
+                    # （windows job 实测）；含 shared 即按 shared（PE 上
+                    # .lib 主流是 DLL 导入库）
+                    if "shared" in (args.libtype or ""):
+                        kind = "shared"
+                    elif args.libtype == "static":
+                        kind = "static"
+                sub = kind if kind else "shared"  # .exp/.pdb 副产物默认 shared
                 dest_dir = os.path.join(target_root, args.arch, sub)
                 os.makedirs(dest_dir, exist_ok=True)
                 dest = os.path.join(dest_dir, fn)

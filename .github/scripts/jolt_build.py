@@ -837,6 +837,12 @@ def package(platform, mode, arch, libtype, toolchain, dist_dir, args):
             if low.endswith(HEADER_EXTENSIONS):
                 headers.append((full, rel))
             elif low.endswith(LIB_EXTENSIONS):
+                # CI-PATCH: shared 组合排除 libJolt.a/libJoltd.a——它们是
+                # 链入 libjoltc.dll 的内嵌中间产物（Jolt 内核静态打包进
+                # joltc 动态库），消费者只需 libjoltc.dll；打出来会让归包
+                # shared/ 混入"没有对应 DLL 的静态库"（windows job 实测）
+                if libtype == "shared" and low.startswith(("libjolt.", "libjoltd.")):
+                    continue
                 libs.append((full, rel))
     if not libs:
         print("  [WARN] %s 下没有库文件，跳过打包" % stage_dir)

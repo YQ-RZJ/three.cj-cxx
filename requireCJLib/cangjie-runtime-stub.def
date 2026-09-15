@@ -1,0 +1,20 @@
+; CI-PATCH: 仓颉运行时导入桩（供无 CJ_RUNTIME_LIB_DIR 的 Windows 构建生成
+; 空导入库）。符号名与 libcangjie-runtime.dll 导出一致（RequireCJLib.h
+; 同名注释）；PE 目标（MinGW/MSVC）不允许未解析符号进 dll——链接时挂上
+; 此桩库产生正确的导入表项，加载期由宿主侧 libcangjie-runtime.dll 解析。
+; MinGW: GNU ld 的 PE 后端不支持 --unresolved-symbols=ignore-all（ELF
+; 专属，windows job 实测 undefined reference）；MSVC: /FORCE:UNRESOLVED
+; 产物 "image may not run"（LNK4088）。桩导入库是两家的正规解法。
+LIBRARY libcangjie-runtime.dll
+EXPORTS
+    InitCJRuntime
+    FiniCJRuntime
+    LoadCJLibrary
+    InitCJLibrary
+    LoadCJLibraryWithInit
+    UnloadCJLibrary
+    FindCJSymbol
+    RunCJTask
+    GetTaskRet
+    GetTaskRetWithTimeout
+    ReleaseHandle

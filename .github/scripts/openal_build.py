@@ -617,7 +617,7 @@ def toolchain_cfg(platform, arch, toolchain, host, ctx, args):
     return cfg
 
 
-def miniaudio_config(platform, mode, arch, toolchain, host, ctx, args):
+def miniaudio_config(platform, mode, arch, libtype, toolchain, host, ctx, args):
     """
     生成 miniaudio 的 cmake 配置参数列表（不含 -S/-B）。
     返回 (configure_args, is_multi_config)。
@@ -631,6 +631,14 @@ def miniaudio_config(platform, mode, arch, toolchain, host, ctx, args):
     cfg = ["-G", gen]
     if not is_multi:
         cfg.append("-DCMAKE_BUILD_TYPE=" + build_type)
+
+    # CI-PATCH: libtype=shared 时切动态库——miniaudio 的 add_library 不带
+    # STATIC/SHARED 关键字，跟随内建 BUILD_SHARED_LIBS（vendored
+    # CMakeLists.txt 已加 CI-PATCH 注释说明）。static 保持默认 OFF。
+    if libtype == "shared":
+        cfg.append("-DBUILD_SHARED_LIBS=ON")
+        # DLL 构建需要 MA_DLL 语义吗？miniaudio.h 的 MA_API 默认 extern
+        #（符号全可见），Windows MinGW/MSVC 均可直接导出，无需宏。
 
     # ---- 通用选项：只编库，不编示例/测试/工具，关闭全部设备后端 ----
     cfg += [
@@ -832,7 +840,7 @@ def build_one(platform, mode, arch, libtype, toolchain, host, args, ctx, log_pat
         shutil.rmtree(ma_build_dir, ignore_errors=True)
     os.makedirs(ma_build_dir, exist_ok=True)
 
-    ma_cfg, ma_multi = miniaudio_config(platform, mode, arch, toolchain, host, ctx, args)
+    ma_cfg, ma_multi = miniaudio_config(platform, mode, arch, libtype, toolchain, host, ctx, args)
     print("  [%s/%s/%s] 配置 miniaudio (toolchain=%s) ..." % (mode, arch, libtype, toolchain))
     ma_config_cmd = [cmake, "-S", MA_DIR, "-B", ma_build_dir] + ma_cfg
     if run(ma_config_cmd, SCRIPT_DIR, env, log_path) != 0:
