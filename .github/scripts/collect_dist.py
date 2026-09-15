@@ -35,6 +35,9 @@ STATIC_EXT = {".a", ".lib"}
 SHARED_EXT = {".so", ".dll", ".dylib"}
 # 导入库/调试伴随文件，跟随其主库类型归档
 SIDE_EXT = {".pdb", ".exp", ".def"}
+# CI-PATCH2: 归包白名单——只收库产物与链接副产物，组 zip 里的头文件/
+# 源码/工具脚本一律不入（shared/ 混 674 个 .h + 28 个 .cpp 的实测教训）
+LIB_ARTIFACT_EXTS = tuple(STATIC_EXT | SHARED_EXT | SIDE_EXT)
 
 
 def classify(name: str, forced: str) -> str:
@@ -129,17 +132,20 @@ def main():
             elif rel == "shared" or rel.startswith("shared/"):
                 forced = "shared"
             for fn in files:
-                kind = classify(fn, forced or args.libtype or "")
-                ext = os.path.splitext(fn)[1].lower()
-                if not kind and ext not in SIDE_EXT:
+                low = fn.lower()
+                # CI-PATCH2: 只收库产物与链接副产物——组 zip 里的头文件/
+                # 源码/工具脚本（.h/.hpp/.cpp/.lua/.f90/...）一律不入归包
+                # （上一版把 args.libtype 当全局 forced，shared 配置下
+                # 674 个 .h + 28 个 .cpp 全部混进 shared/，windows job
+                # 实测）；args.libtype 只用于消解 .lib 的歧义。
+                if not low.endswith(LIB_ARTIFACT_EXTS):
                     continue
-                if kind:
-                    sub = kind
-                else:
-                    # 副产物（.pdb/.exp/.def）：优先用本目录 forced，否则
-                    # 按"若无它其伴生主库属于哪类"推断（.exp 归 shared——
-                    # windows job 实测 dlbridge.exp 是 DLL 链接期副产物）
-                    sub = forced if forced else "shared"
+                kind = classify(fn, forced)
+                if not kind and low.endswith(".lib") and args.libtype in ("static", "shared"):
+                    # shared 配置下 stage 目录的 .lib 是 DLL 导入库
+                    # （cangjie-runtime-stub.lib 实测落错 static）
+                    kind = args.libtype
+                sub = kind if kind else "shared"  # .exp/.pdb 副产物默认 shared
                 dest_dir = os.path.join(target_root, args.arch, sub)
                 os.makedirs(dest_dir, exist_ok=True)
                 dest = os.path.join(dest_dir, fn)
