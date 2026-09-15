@@ -187,6 +187,11 @@ def parse_args():
                     help="iOS 最低部署版本（默认 13.0）")
     ap.add_argument("--macos-deploy-target", default="10.15",
                     help="macOS 最低部署版本（默认 10.15）")
+    # CI-PATCH: 支持 shared——TracyClient.cpp 单翻译单元 + TRACY_EXPORTS
+    # 可编动态库（ci_build.py 按 script_supports 探测后透传 --libtype）
+    ap.add_argument("--libtype", default="static",
+                    choices=["static", "shared", "static,shared", "shared,static"],
+                    help="库类型：static（默认）/shared（动态库，产 libtracyc.dll）")
     ap.add_argument("--jobs", type=int, default=1,
                     help="并行编译任务数（单文件编译，默认 1）")
     ap.add_argument("--dist", default=DIST_DIR,
@@ -649,6 +654,16 @@ def build_one(platform, mode, arch, ctx, args, log_path):
         cmd += ["/c", TRACY_SRC, "/I" + TRACY_INC, "/Fo" + obj]
     else:
         cmd += ["-c", TRACY_SRC, "-I" + TRACY_INC, "-o", obj]
+    # CI-PATCH: shared 模式编 DLL 而非静态库——TracyApi.h 的 TRACY_API
+    # 由 TRACY_EXPORTS 控制 __declspec(dllexport)，单翻译单元
+    # TracyClient.cpp 直接可编动态库（用户澄清：tracy 应支持 shared）
+    shared = getattr(args, "libtype", "static") == "shared"
+    if shared:
+        if is_msvc:
+            cmd.insert(1, "/DTRACY_EXPORTS")
+        else:
+            cmd += ["-DTRACY_EXPORTS"]
+
     print("  [CC] %s" % " ".join(cmd))
     if run_logged(cmd, env, log_path) != 0:
         print("  [FAIL] 对象编译失败，日志: %s" % log_path)
@@ -656,6 +671,30 @@ def build_one(platform, mode, arch, ctx, args, log_path):
     # MSVC 产物：剥除 /DEFAULTLIB 指令（cjc lld-mingw 链接兼容）
     if is_msvc:
         strip_msvc_defaultlibs(obj)
+
+    if shared:
+        # 链接动态库（替代静态归档）
+        if is_msvc:
+            dll = os.path.join(lib_out, "tracyc.dll" if mode == "release" else "tracycd.dll")
+            # MSVC 链接器即 link.exe（compile_cmd 的 cxx_cmd[0] 是 cl.exe，
+            # 链接统一走 cl /link 让 vcvars INCLUDE/LIB 生效）
+            link_cmd = list(cxx_cmd) + [obj, "/link", "/DLL", "/NOLOGO",
+                                        "/OUT:" + dll]
+        else:
+            dll = os.path.join(lib_out,
+                               "libtracycd.dll" if mode == "debug" else "libtracyc.dll")
+            # CI-PATCH: DLL 链接必须解析全部符号（静态归档不做链接）——
+            # TracyClient 在 Windows 引 ws2_32（socket/WSAPoll）、dbghelp
+            # （SymGetLineFromAddr64）、secur32（GetUserNameExA，本机实测
+            # 缺它即报 undefined）等系统库
+            link_cmd = list(cxx_cmd) + ["-shared", "-o", dll, obj,
+                                        "-lws2_32", "-ldbghelp", "-lsecur32"]
+        print("  [LINK] %s" % " ".join(link_cmd))
+        if run_logged(link_cmd, env, log_path) != 0:
+            print("  [FAIL] 动态库链接失败，日志: %s" % log_path)
+            return False
+        print("  [OK] 动态库: %s" % dll)
+        return True
 
     # 归档：MSVC 先出 .lib 再复制为 .a（打包压缩语义：仓颉侧统一 .a 命名）
     lib_c = ("tracycd.lib" if mode == "debug" else "tracyc.lib") if is_msvc \
@@ -686,12 +725,14 @@ def build_one(platform, mode, arch, ctx, args, log_path):
 # ---------------------------------------------------------------------------
 # 打包：把 tracy/public 头文件 + 静态库打成规范命名 zip（格式对齐 bgfx/build.py）
 # ---------------------------------------------------------------------------
-def package(platform, mode, arch, toolchain, dist_dir, lib_file):
-    """lib_file: build_one 产出的静态库路径（可能为 None 表示未部署）。
-    zip 命名: tracy4cj-<platform>-<arch>-<mode>-<toolchain>.zip
+def package(platform, mode, arch, toolchain, dist_dir, lib_file, libtype="static"):
+    """lib_file: build_one 产出的库路径（可能为 None 表示未部署）。
+    zip 命名: tracy4cj-<platform>-<arch>-<mode>-<libtype>-<toolchain>.zip
       include/ = tracy/public 全部头文件
-      lib/     = 静态库（.a 优先，MSVC 场景附 .lib）"""
-    name = "tracy4cj-%s-%s-%s-%s" % (platform.lower(), arch, mode, toolchain)
+      lib/     = 静态库（.a 优先，MSVC 场景附 .lib）或动态库（.dll）"""
+    # CI-PATCH: zip 名带 libtype 段——collect_dist 靠 -shared-/-static-
+    # 消解 .lib/.a/.dll.a 的归类
+    name = "tracy4cj-%s-%s-%s-%s-%s" % (platform.lower(), arch, mode, libtype, toolchain)
     zip_path = os.path.join(dist_dir, name + ".zip")
 
     if not lib_file or not os.path.isfile(lib_file):
@@ -707,10 +748,11 @@ def package(platform, mode, arch, toolchain, dist_dir, lib_file):
                     full = os.path.join(root, f)
                     rel = os.path.relpath(full, TRACY_PUB)
                     z.write(full, os.path.join(name, "include", rel))
-        # 静态库（.a 优先；MSVC 场景同一目录下 .lib 与 .a 均打包）
+        # 库产物（.a 优先；MSVC 场景同一目录下 .lib 与 .a 均打包；
+        # CI-PATCH: shared 模式收 .dll——libtracyc.dll/libtracycd.dll）
         lib_dir = os.path.dirname(lib_file)
         for f in sorted(os.listdir(lib_dir)):
-            if f.startswith("libtracyc") and (f.endswith(".a") or f.endswith(".lib")):
+            if f.startswith("libtracyc") and (f.endswith(".a") or f.endswith(".lib") or f.endswith(".dll")):
                 z.write(os.path.join(lib_dir, f), os.path.join(name, "lib", f))
     return zip_path
 
@@ -814,16 +856,25 @@ def main():
                 else:
                     tc = platform.lower()
 
-                # 库产物在组合目录 output/build-<platform>-<arch>-<mode>/lib/；
-                # 打包 zip（--skip-package 跳过）
-                lib_file = os.path.join(
-                    OUTPUT_DIR, "build-%s-%s-%s" % (platform.lower(), arch, mode), "lib",
-                    ("libtracycd.a" if mode == "debug" else "libtracyc.a"))
+                # CI-PATCH: shared 模式的产物是 DLL（build_one 返回 True
+                # 已链接完成），直接定位 DLL 打包；zip 名补 libtype 段
+                # （collect_dist 靠 -shared-/-static- 消解 .lib/.a 归类）
+                libtype = getattr(args, "libtype", "static").split(",")[0]
+                if libtype == "shared":
+                    lib_file = os.path.join(
+                        OUTPUT_DIR, "build-%s-%s-%s" % (platform.lower(), arch, mode), "lib",
+                        ("libtracycd.dll" if mode == "debug" else "libtracyc.dll"))
+                    combo_name += "-shared"
+                else:
+                    lib_file = os.path.join(
+                        OUTPUT_DIR, "build-%s-%s-%s" % (platform.lower(), arch, mode), "lib",
+                        ("libtracycd.a" if mode == "debug" else "libtracyc.a"))
+                    combo_name += "-static"
                 if args.skip_package:
                     print("  [OK] %s 编译成功（--skip-package 不打包）" % combo_name)
                     results.append((combo_name, "ok", "编译成功"))
                 else:
-                    zpath = package(platform, mode, arch, tc, dist_dir, lib_file)
+                    zpath = package(platform, mode, arch, tc, dist_dir, lib_file, libtype)
                     if zpath:
                         print("  [OK] %s 编译并打包: %s" % (combo_name, zpath))
                         results.append((combo_name, "ok", "zip: " + zpath))

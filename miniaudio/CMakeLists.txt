@@ -501,7 +501,10 @@ if (UNIX)
 endif()
 
 
-# Static Libraries
+# CI-PATCH: 支持 shared 构建——add_library 不带 STATIC/SHARED 关键字时
+# 跟随内建变量 BUILD_SHARED_LIBS（openal_build.py 在 libtype=shared 时
+# 传 -DBUILD_SHARED_LIBS=ON）。miniaudio.h 的 MA_API 默认 extern，符号
+# 全部可见，Windows 无需 MA_DLL 导出宏；macOS/Linux 靠默认可见性。
 add_library(miniaudio
     miniaudio.c
     miniaudio.h

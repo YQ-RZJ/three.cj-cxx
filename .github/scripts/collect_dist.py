@@ -39,8 +39,14 @@ SIDE_EXT = {".pdb", ".exp", ".def"}
 
 def classify(name: str, forced: str) -> str:
     ext = os.path.splitext(name)[1].lower()
+    low = name.lower()
     if forced in ("static", "shared"):
         return forced
+    # CI-PATCH: MinGW 导入库（libfoo.dll.a）是链接期伴随 DLL 的导入库，
+    # 消费 shared 链接用——归 shared 而非按 .a 误入 static
+    # （windows job 实测 libdlbridge.dll.a / librequirecj_ffi.dll.a 落错）
+    if low.endswith(".dll.a") or low.endswith(".dll.lib"):
+        return "shared"
     if ext in STATIC_EXT:
         return "static"
     if ext in SHARED_EXT:
@@ -87,9 +93,20 @@ def main():
         if not os.path.isfile(zp):
             print(f"[collect] skip missing zip: {zp}")
             continue
+        # CI-PATCH: 按 zip 名中的库类型标记分子目录解包——组脚本命名约定
+        # <name>-<static|shared>-<toolchain>.zip。MSVC 的 .lib 歧义（导入
+        # 库 vs 真静态库扩展名相同）靠这个 per-file forced 消解：shared
+        # zip 里的 .lib 是 DLL 导入库，归 shared。
+        base = os.path.basename(zp).lower()
+        if "-static-" in base or base.endswith("-static.zip"):
+            sub = "static"
+        elif "-shared-" in base or base.endswith("-shared.zip"):
+            sub = "shared"
+        else:
+            sub = "plain"
         try:
             with zipfile.ZipFile(zp) as z:
-                z.extractall(tmp_unzip)
+                z.extractall(os.path.join(tmp_unzip, sub))
         except zipfile.BadZipFile:
             print(f"[collect] WARN 损坏的 zip，跳过: {zp}")
             continue
@@ -101,14 +118,28 @@ def main():
         if not os.path.isdir(src):
             print(f"[collect] skip missing: {src}")
             continue
+        # CI-PATCH: 来自 zip 解包的文件按其子目录（static/shared/plain）
+        # 派生 forced 分类——消解 .lib 的扩展名歧义（导入库 vs 真静态库）；
+        # .exp/.pdb 副产物跟随所在 zip 的库类型归 shared/static。
         for root, _dirs, files in os.walk(src):
+            forced = ""
+            rel = os.path.relpath(root, src).replace("\\", "/").lower()
+            if rel == "static" or rel.startswith("static/"):
+                forced = "static"
+            elif rel == "shared" or rel.startswith("shared/"):
+                forced = "shared"
             for fn in files:
-                kind = classify(fn, args.libtype or "")
+                kind = classify(fn, forced or args.libtype or "")
                 ext = os.path.splitext(fn)[1].lower()
                 if not kind and ext not in SIDE_EXT:
                     continue
-                sub = "static" if kind == "static" or (not kind and ext in SIDE_EXT
-                                                       and classify(fn.replace(".pdb", ".a").replace(".exp", ".a"), "") == "static") else "shared"
+                if kind:
+                    sub = kind
+                else:
+                    # 副产物（.pdb/.exp/.def）：优先用本目录 forced，否则
+                    # 按"若无它其伴生主库属于哪类"推断（.exp 归 shared——
+                    # windows job 实测 dlbridge.exp 是 DLL 链接期副产物）
+                    sub = forced if forced else "shared"
                 dest_dir = os.path.join(target_root, args.arch, sub)
                 os.makedirs(dest_dir, exist_ok=True)
                 dest = os.path.join(dest_dir, fn)

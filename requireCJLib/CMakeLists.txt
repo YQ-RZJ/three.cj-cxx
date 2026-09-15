@@ -64,13 +64,42 @@ if(REQUIRECJ_FFI_SHARED)
             target_link_libraries(requirecj_ffi PRIVATE cangjie-runtime cangjie-trace)
         endif()
     else()
-        # 未指定仓颉运行时库路径，允许未解析符号
-        if(MSVC)
-            target_link_options(requirecj_ffi PRIVATE /FORCE:UNRESOLVED)
+        # CI-PATCH: 未指定运行时库路径时的分平台处理。PE 目标（Windows）
+        # 不允许未解析符号：MinGW 的 GNU ld PE 后端不支持 ELF 专属的
+        # --unresolved-symbols=ignore-all（windows job 实测 undefined
+        # reference），MSVC /FORCE:UNRESOLVED 产物 "image may not run"
+        # （LNK4088）。正规解法是导入桩：dlltool/lib.exe 按 .def 生成
+        # 空导入库（导入表项指向 libcangjie-runtime.dll），链接期挂上
+        # 即产生正确的导入表，加载期由宿主侧运行时 DLL 解析。非 Windows
+        # 保持 allow-shlib-undefined / ignore-all（ELF/Mach-O 语义）。
+        if(MSVC OR MINGW OR WIN32)
+            set(_STUB_DEF "${CMAKE_CURRENT_SOURCE_DIR}/cangjie-runtime-stub.def")
+            set(_STUB_LIB "${CMAKE_CURRENT_BINARY_DIR}/cangjie-runtime-stub.lib")
+            if(MSVC)
+                add_custom_command(OUTPUT "${_STUB_LIB}"
+                    COMMAND lib /def:"${_STUB_DEF}" /machine:X64
+                            /out:"${_STUB_LIB}" /nologo
+                    DEPENDS "${_STUB_DEF}"
+                    COMMENT "lib.exe: 生成仓颉运行时导入桩 ${_STUB_LIB}")
+            else()
+                # MinGW: dlltool 从 .def 生成导入库（-l 输出即 .dll.a 形态）
+                find_program(DLLTOOL_EXE dlltool)
+                if(NOT DLLTOOL_EXE)
+                    message(FATAL_ERROR "MinGW 构建需要 dlltool（binutils）生成仓颉运行时导入桩")
+                endif()
+                add_custom_command(OUTPUT "${_STUB_LIB}"
+                    COMMAND "${DLLTOOL_EXE}" --def "${_STUB_DEF}"
+                            --output-lib "${_STUB_LIB}"
+                    DEPENDS "${_STUB_DEF}"
+                    COMMENT "dlltool: 生成仓颉运行时导入桩 ${_STUB_LIB}")
+            endif()
+            add_custom_target(cangjie_runtime_stub DEPENDS "${_STUB_LIB}")
+            add_dependencies(requirecj_ffi cangjie_runtime_stub)
+            target_link_libraries(requirecj_ffi PRIVATE "${_STUB_LIB}")
         elseif(APPLE)
             target_link_options(requirecj_ffi PRIVATE -undefined dynamic_lookup)
         else()
-            # GCC/Clang: 允许未解析符号（Linux/Android/OHOS）。
+            # GCC/Clang (ELF): 允许未解析符号（Linux/Android/OHOS）。
             # CI-PATCH: Android NDK 工具链默认追加 -Wl,--no-undefined，而
             # --allow-shlib-undefined 是另一个独立开关，抵消不了它——
             # InitCJRuntime 等由仓颉运行时 .so 在运行时提供的符号会在
