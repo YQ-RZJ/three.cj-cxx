@@ -76,20 +76,40 @@ if(REQUIRECJ_FFI_SHARED)
             set(_STUB_DEF "${CMAKE_CURRENT_SOURCE_DIR}/cangjie-runtime-stub.def")
             set(_STUB_LIB "${CMAKE_CURRENT_BINARY_DIR}/cangjie-runtime-stub.lib")
             if(MSVC)
+                # CI-PATCH: /machine 必须跟目标架构一致——arm64 job 实测
+                # 硬编码 X64 生成 x64 桩库，链接报 LNK4272 machine type
+                # 'x64' conflicts with 'ARM64' 后 11 个符号全部 unresolved
+                if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64|aarch64)")
+                    set(_LIB_MACHINE ARM64)
+                else()
+                    set(_LIB_MACHINE X64)
+                endif()
                 add_custom_command(OUTPUT "${_STUB_LIB}"
-                    COMMAND lib /def:"${_STUB_DEF}" /machine:X64
+                    COMMAND lib /def:"${_STUB_DEF}" /machine:${_LIB_MACHINE}
                             /out:"${_STUB_LIB}" /nologo
                     DEPENDS "${_STUB_DEF}"
                     COMMENT "lib.exe: 生成仓颉运行时导入桩 ${_STUB_LIB}")
             else()
-                # MinGW: dlltool 从 .def 生成导入库（-l 输出即 .dll.a 形态）
+                # MinGW: dlltool 从 .def 生成导入库。CI-PATCH: llvm-mingw
+                # 的 llvm-dlltool 不认 GNU binutils 的 --def/--output-lib
+                # 长选项（直接打 USAGE 退出，windows arm64 job 实测），用
+                # -d/-l 短选项；且必须显式 -m 指定目标机器（llvm-dlltool
+                # 默认 x86，arm64 工具链不传会生成错误机器类型的桩），
+                # 从编译器目标推机器类型。
                 find_program(DLLTOOL_EXE dlltool)
                 if(NOT DLLTOOL_EXE)
                     message(FATAL_ERROR "MinGW 构建需要 dlltool（binutils）生成仓颉运行时导入桩")
                 endif()
+                if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|ARM64|arm64)")
+                    set(_DLLTOOL_MACHINE arm64)
+                elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x64)")
+                    set(_DLLTOOL_MACHINE i386:x86-64)
+                else()
+                    set(_DLLTOOL_MACHINE i386)
+                endif()
                 add_custom_command(OUTPUT "${_STUB_LIB}"
-                    COMMAND "${DLLTOOL_EXE}" --def "${_STUB_DEF}"
-                            --output-lib "${_STUB_LIB}"
+                    COMMAND "${DLLTOOL_EXE}" -d "${_STUB_DEF}"
+                            -l "${_STUB_LIB}" -m "${_DLLTOOL_MACHINE}"
                     DEPENDS "${_STUB_DEF}"
                     COMMENT "dlltool: 生成仓颉运行时导入桩 ${_STUB_LIB}")
             endif()
