@@ -489,9 +489,15 @@ def resolve_mingw(args):
     """探测 MinGW-w64 工具链路径。"""
     # CI-PATCH: 候选含 GitHub runner 的 msys2 布局（C:\msys64\mingw64）
     # 与 MINGW_PREFIX 环境变量（msys2/setup-msys2 action 会注入）
+    _msys2_root = os.environ.get("MSYS2_ROOT")
     candidates = [
         args.mingw,
         os.environ.get("MINGW_PREFIX"),
+        # CI-PATCH: setup-msys2 的 location=C:\msys2-full（windows.yml/
+        # ohos.yml 固定安装根）——其 mingw64 工具链在 <root>/mingw64，
+        # 不在候选表里导致 windows x86 job [SKIP] 缺少 MinGW-w64（实测）
+        os.path.join(_msys2_root, "mingw64") if _msys2_root else None,
+        r"C:\msys2-full\mingw64",
         r"D:\Venv\C_Cpp\llvm-mingw",          # 通用，同时支持 x86_64 + arm64-v8a
         r"D:\Venv\C_Cpp\mingw-w64\mingw64_15.2.0",
         r"D:\Venv\C_Cpp\mingw-w64\mingw64",

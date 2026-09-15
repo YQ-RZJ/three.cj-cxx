@@ -114,13 +114,13 @@ def arch_for_script(script: str, arch: str) -> str:
 def salvage_zips(scripts_dir: str, arch: str):
     """CI-PATCH3: 每组跑完立即把新产出的 zip 挪进清理范围外的暂存区。
 
-    8 个组的 DIST_DIR 都指向共享的 .github/scripts/dist/，下一组的
-    --clean 会 rmtree 它——先跑组的 zip 必须在下一组启动前抢救出来
-    （macOS 实测：最终归包只剩最后两组的产物）。按架构分目录暂存
-    （ci_deps/zips/<arch>/），归包时按当前架构收。"""
+    各组 --clean 都会 rmtree cxx/dist/（windows x86 job 实测：9 组 zip
+    全部落 cxx/dist/， salvage 扫 .github/scripts/dist/ 永远空，最终
+    归包只剩最后一组产物）——zip 必须在下一组启动前抢救进 ci_deps/
+    zips/<arch>/（清理范围外），归包按架构分目录收。"""
     import glob as _glob
     import shutil as _shutil
-    src_dir = os.path.join(scripts_dir, "dist")
+    src_dir = os.path.join(CXX_ROOT, "dist")
     if not os.path.isdir(src_dir):
         return
     dst_dir = os.path.join(CXX_ROOT, "ci_deps", "zips", arch)
@@ -293,7 +293,7 @@ def main():
         # .github/scripts/dist/，下一组 --clean 会 rmtree 它（macOS 实测：
         # 最终 zip 只剩最后两组的产物）。挪进清理范围外的 ci_deps/zips/
         # 累计暂存，归包时从这里收。
-        salvage_zips(HERE, args.arch)
+        salvage_zips(CXX_ROOT, args.arch)
 
     # ---- 归包：dist/<os>/<arch>/{static,shared} ----
     # CI-PATCH: 方案 A——从各组 *_build.py 产出的 zip 归包（zip 在各组跑完
@@ -301,7 +301,7 @@ def main():
     # 最后一组的产物，归包结果残缺）。zip 源：ci_deps/zips/ 暂存区（每组
     # 跑完立即抢救）+ bgfx 的 cxx/dist/（其 DIST_DIR=ROOT/dist，无共享
     # 清理问题，兜底直收）。
-    salvage_dir = os.path.join(CXX_ROOT, "ci_deps", "zips")
+    salvage_dir = os.path.join(CXX_ROOT, "ci_deps", "zips", args.arch)
     collect = [sys.executable, os.path.join(HERE, "collect_dist.py"),
                "--os", os_dir, "--arch", args.arch,
                "--out", DIST_ROOT, "--clean",
