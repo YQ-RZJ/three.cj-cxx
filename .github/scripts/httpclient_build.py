@@ -1222,6 +1222,12 @@ def build_tlsbridge(platform, arch, mode, host, ctx, ssl_dir, log_path, libtype=
         else:
             dll_path = os.path.join(tlsbridge_out, "libtlsbridge.so")
         link_cmd = [cc, "-shared", "-o", dll_path] + obj_files + ssl_libs.split()
+        # CI-PATCH2: Windows 动态链接必须解析 tlsbridge 引用的
+        # pthread_mutex_lock/unlock——llvm-mingw 的 pthread 实现在
+        # winpthreads 里，需显式 -lpthread（windows arm64 job 实测
+        # undefined symbol；静态归档不做链接所以 static 模式从不暴露）
+        if platform == "WINDOWS":
+            link_cmd += ["-lpthread"]
         # $ORIGIN rpath 仅 ELF（Linux/Android/OHOS）有效；macOS/Windows
         # 运行时按同目录/PATH 解析，传 $ORIGIN 会被当字面量
         if platform not in ("WINDOWS", "OSX", "IOS"):
