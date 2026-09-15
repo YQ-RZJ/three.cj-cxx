@@ -125,7 +125,11 @@ OPENSSL_TARGET = {
         "arm64-v8a": "BSD-aarch64",
     },
     "IOS": {
-        "x86_64":    "ios64-xcrun",
+        # CI-PATCH: x86_64 是 iOS 模拟器架构，必须用 iossimulator-xcrun
+        # target——此前误用 ios64-xcrun（仅 iOS 设备/arm64），OpenSSL 被按
+        # -arch arm64 编译（ios x86_64 job 实测产物含 aes-sha1-armv8.o），
+        # tlsbridge x86_64 链接时全部 X509/OpenSSL 符号 undefined
+        "x86_64":    "iossimulator-xcrun",
         "arm64-v8a": "ios64-xcrun",
     },
     "OSX": {
