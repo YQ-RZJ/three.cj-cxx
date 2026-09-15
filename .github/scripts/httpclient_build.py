@@ -1222,6 +1222,14 @@ def build_tlsbridge(platform, arch, mode, host, ctx, ssl_dir, log_path, libtype=
         else:
             dll_path = os.path.join(tlsbridge_out, "libtlsbridge.so")
         link_cmd = [cc, "-shared", "-o", dll_path] + obj_files + ssl_libs.split()
+        # CI-PATCH3: 链接命令必须携带与编译一致的交叉标志——cflags 里的
+        # --target/--sysroot（ANDROID/OHOS）、-target/-isysroot（IOS）
+        # 若缺席，clang 链接期退回宿主工具链/默认 SDK：
+        #   ANDROID arm64: ld: alpn.o is incompatible with elf64-x86-64
+        #   IOS arm64:     ld: building for 'macOS', but object built for 'iOS'
+        #   OHOS:          C:/mingw64/bin/ld.exe: alpn.o: file in wrong format
+        # 编译标志（-Wall/-O2/-I）在链接期无害，直接整体复用。
+        link_cmd += cflags.split()
         # CI-PATCH2: Windows 动态链接必须解析 tlsbridge 引用的
         # pthread_mutex_lock/unlock——llvm-mingw 的 pthread 实现在
         # winpthreads 里，需显式 -lpthread（windows arm64 job 实测
