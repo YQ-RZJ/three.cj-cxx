@@ -241,7 +241,9 @@ namespace bgfx
 		NULL
 	};
 
-	void fatal(const char* _filePath, uint16_t _line, Fatal::Enum _code, const char* _format, ...)
+	// SHADERC_CAPI 补丁（对齐旧 cxx/bgfx 仓库）：static 内部链接，
+	// 后端 TU 需要时从 libbgfx.a(bgfx.cpp) 解析，避免与 libbgfx.a 强符号重复。
+	static void fatal(const char* _filePath, uint16_t _line, Fatal::Enum _code, const char* _format, ...)
 	{
 		BX_UNUSED(_filePath, _line, _code);
 
@@ -255,7 +257,7 @@ namespace bgfx
 		abort();
 	}
 
-	void trace(const char* _filePath, uint16_t _line, const char* _format, ...)
+	static void trace(const char* _filePath, uint16_t _line, const char* _format, ...)
 	{
 		BX_UNUSED(_filePath, _line);
 
@@ -361,7 +363,11 @@ namespace bgfx
 		return _glsl; // centroid, noperspective
 	}
 
-	const char* s_uniformTypeName[] =
+	// SHADERC_CAPI 补丁（对齐旧 cxx/bgfx 仓库）：
+	//  - 数组改 static：capi 库与 libbgfx.a 同时链入下游 dll，避免
+	//    bgfx::s_uniformTypeName 强符号重复（ld.lld: duplicate symbol）；
+	//  - 两个转换函数在 CAPI 构建中不定义，统一由 libbgfx.a(bgfx.cpp) 提供。
+	static const char* s_uniformTypeName[] =
 	{
 		"int",  "int",
 		NULL,   NULL,
@@ -371,6 +377,7 @@ namespace bgfx
 	};
 	static_assert(BX_COUNTOF(s_uniformTypeName) == UniformType::Count*2);
 
+#ifndef SHADERC_CAPI
 	const char* getUniformTypeName(UniformType::Enum _enum)
 	{
 		const uint32_t idx = _enum & ~(kUniformFragmentBit|kUniformSamplerBit);
@@ -395,6 +402,7 @@ namespace bgfx
 
 		return UniformType::Count;
 	}
+#endif // SHADERC_CAPI
 
 	uint8_t spirvDimToTextureDimensionId(uint32_t _dim, bool _arrayed)
 	{

@@ -51,6 +51,11 @@ if(UNIX
 	)
 	set(DXCOMPILER_RUNTIME ${BGFX_DIR}/tools/bin/linux/libdxcompiler.so)
 elseif(WIN32)
+	target_include_directories(
+		shaderc
+		PRIVATE ${BGFX_DIR}/3rdparty/directx-headers/include/directx
+				${BGFX_DIR}/3rdparty/directx-headers/include
+	)
 	set(DXCOMPILER_RUNTIME ${BGFX_DIR}/tools/bin/windows/dxcompiler.dll)
 endif()
 

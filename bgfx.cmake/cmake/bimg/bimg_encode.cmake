@@ -14,7 +14,15 @@ if(NOT IS_DIRECTORY ${BIMG_DIR})
 	return()
 endif()
 
-add_library(bimg_encode STATIC)
+# Old-version xmake parity: honor BGFX_LIBRARY_TYPE (static / shared).
+if(BGFX_LIBRARY_TYPE STREQUAL SHARED)
+	add_library(bimg_encode SHARED)
+	if(WIN32)
+		set_target_properties(bimg_encode PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+	endif()
+else()
+	add_library(bimg_encode STATIC)
+endif()
 
 # Put in a "bgfx" folder in Visual Studio
 set_target_properties(bimg_encode PROPERTIES FOLDER "bgfx")
@@ -55,6 +63,7 @@ target_sources(bimg_encode PRIVATE ${BIMG_ENCODE_SOURCES})
 target_link_libraries(
 	bimg_encode
 	PUBLIC bx #
+		   bimg # shared 下为导入库（image_encode 引用 bimg::imageAlloc/imageConvert 等）
 		   ${LIBSQUISH_LIBRARIES} #
 		   ${ASTC_ENCODER_LIBRARIES} #
 		   ${EDTAA3_LIBRARIES} #

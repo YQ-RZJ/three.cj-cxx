@@ -14,6 +14,11 @@ if(NOT IS_DIRECTORY ${BIMG_DIR})
 	return()
 endif()
 
+# 注意：不要再单独编译 ${MINIZ_SOURCES}。
+# 新版 bimg 的 src/image_decode.cpp 已在 BIMG_CONFIG_PARSE_EXR 块内直接
+# #include <miniz/miniz.c>（与上游 genie 脚本 bimg_decode.lua 对齐），
+# 再编译独立 miniz.c 会在归档内产生两份 mz_* 定义，MinGW ld.lld 链接
+# 下游 .dll 时报 duplicate symbol（MSVC link.exe 对相同 COMDAT 容忍故不暴露）。
 file(
 	GLOB_RECURSE
 	BIMG_DECODE_SOURCES #
@@ -21,7 +26,6 @@ file(
 	${BIMG_DIR}/src/image_decode*.* #
 	#
 	${LOADPNG_SOURCES} #
-	${MINIZ_SOURCES} #
 )
 
 # AVIF decoding (libavif + dav1d), enabled by default in bimg
@@ -32,7 +36,15 @@ set(BIMG_DECODE_AVIF_SOURCES
 	${BIMG_DIR}/3rdparty/libavif/libavif-amalgamated.c #
 )
 
-add_library(bimg_decode STATIC ${BIMG_DECODE_SOURCES} ${BIMG_DECODE_AVIF_SOURCES})
+# Old-version xmake parity: honor BGFX_LIBRARY_TYPE (static / shared).
+if(BGFX_LIBRARY_TYPE STREQUAL SHARED)
+	add_library(bimg_decode SHARED ${BIMG_DECODE_SOURCES} ${BIMG_DECODE_AVIF_SOURCES})
+	if(WIN32)
+		set_target_properties(bimg_decode PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+	endif()
+else()
+	add_library(bimg_decode STATIC ${BIMG_DECODE_SOURCES} ${BIMG_DECODE_AVIF_SOURCES})
+endif()
 
 # Put in a "bgfx" folder in Visual Studio
 set_target_properties(bimg_decode PROPERTIES FOLDER "bgfx")
@@ -59,6 +71,7 @@ target_include_directories(
 target_link_libraries(
 	bimg_decode
 	PUBLIC bx #
+		   bimg # shared 下为导入库（image_decode 引用 bimg::imageParse 等），static 下保持归档顺序
 		   ${LOADPNG_LIBRARIES} #
 		   ${MINIZ_LIBRARIES} #
 		   ${TINYEXR_LIBRARIES} #

@@ -59,13 +59,17 @@ foreach(BX_SRC ${BX_NOBUILD})
 	set_source_files_properties(${BX_SRC} PROPERTIES HEADER_FILE_ONLY ON)
 endforeach()
 
-add_library(bx STATIC ${BX_SOURCES})
-
-# Old-version xmake customization: on Windows shared builds, mingw ld disables
-# automatic symbol export once any __declspec(dllexport) appears in the sources
-# (e.g. bgfx.cpp GPU variables), so force-export everything.
-if(BGFX_LIBRARY_TYPE STREQUAL SHARED AND WIN32)
-	set_target_properties(bx PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+# Old-version xmake parity: honor BGFX_LIBRARY_TYPE (static / shared).
+if(BGFX_LIBRARY_TYPE STREQUAL SHARED)
+	add_library(bx SHARED ${BX_SOURCES})
+	# On Windows shared builds, mingw ld disables automatic symbol export once
+	# any __declspec(dllexport) appears in the sources, so force-export
+	# everything; on MSVC this emits a .def from global symbols.
+	if(WIN32)
+		set_target_properties(bx PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+	endif()
+else()
+	add_library(bx STATIC ${BX_SOURCES})
 endif()
 
 if(MSVC)

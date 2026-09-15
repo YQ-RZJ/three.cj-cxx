@@ -14,6 +14,10 @@ if(NOT IS_DIRECTORY ${BIMG_DIR})
 	return()
 endif()
 
+# 注意：核心 bimg 不编译 ${MINIZ_SOURCES}（与上游 genie bimg.lua 对齐）。
+# miniz 实现仅由 bimg_decode 的 image_decode.cpp 内嵌 #include 一次；
+# 此处再编独立 miniz.c 会与 libbimg_decode.a 中的内嵌副本形成跨归档
+# duplicate symbol（mz_inflateInit 等），MinGW ld.lld 链接下游 .dll 时报错。
 file(
 	GLOB_RECURSE
 	BIMG_SOURCES
@@ -22,10 +26,17 @@ file(
 	${BIMG_DIR}/src/image_gnf.cpp #
 	#
 	${ASTC_ENCODER_SOURCES}
-	${MINIZ_SOURCES}
 )
 
-add_library(bimg STATIC ${BIMG_SOURCES})
+# Old-version xmake parity: honor BGFX_LIBRARY_TYPE (static / shared).
+if(BGFX_LIBRARY_TYPE STREQUAL SHARED)
+	add_library(bimg SHARED ${BIMG_SOURCES})
+	if(WIN32)
+		set_target_properties(bimg PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+	endif()
+else()
+	add_library(bimg STATIC ${BIMG_SOURCES})
+endif()
 
 # Put in a "bgfx" folder in Visual Studio
 set_target_properties(bimg PROPERTIES FOLDER "bgfx")
