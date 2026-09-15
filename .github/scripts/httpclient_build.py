@@ -494,9 +494,13 @@ def resolve_mingw(args):
         args.mingw,
         os.environ.get("MINGW_PREFIX"),
         # CI-PATCH: setup-msys2 的 location=C:\msys2-full（windows.yml/
-        # ohos.yml 固定安装根）——其 mingw64 工具链在 <root>/mingw64，
-        # 不在候选表里导致 windows x86 job [SKIP] 缺少 MinGW-w64（实测）
+        # ohos.yml 固定安装根）——两种布局都要覆盖：SFX 解包带 msys64
+        # 一级前缀（实际为 <root>\msys64\mingw64，windows x86 job 实测
+        # MSYS2 解析为 C:\msys2-full\msys64），location 生效时为
+        # <root>\mingw64。
+        os.path.join(_msys2_root, "msys64", "mingw64") if _msys2_root else None,
         os.path.join(_msys2_root, "mingw64") if _msys2_root else None,
+        r"C:\msys2-full\msys64\mingw64",
         r"C:\msys2-full\mingw64",
         r"D:\Venv\C_Cpp\llvm-mingw",          # 通用，同时支持 x86_64 + arm64-v8a
         r"D:\Venv\C_Cpp\mingw-w64\mingw64_15.2.0",
