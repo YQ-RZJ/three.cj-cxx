@@ -106,5 +106,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-libs-windows-${{ matrix.arch }}
-          path: dist/native-libs-windows-${{ matrix.arch }}.zip
+          path: dist/native-libs-windows-*
           retention-days: 30

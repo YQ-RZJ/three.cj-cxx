@@ -77,5 +77,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-libs-android-${{ matrix.arch }}
-          path: dist/native-libs-android-${{ matrix.arch }}.tar.gz
+          path: dist/native-libs-android-*
           retention-days: 30

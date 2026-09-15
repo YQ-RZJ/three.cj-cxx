@@ -66,5 +66,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-libs-ios-${{ matrix.arch }}
-          path: dist/native-libs-ios-${{ matrix.arch }}.tar.gz
+          path: dist/native-libs-ios-*
           retention-days: 30

@@ -113,5 +113,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-libs-linux-${{ matrix.arch }}
-          path: dist/native-libs-linux-${{ matrix.arch }}.tar.gz
+          path: dist/native-libs-linux-*
           retention-days: 30

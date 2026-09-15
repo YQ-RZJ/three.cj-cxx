@@ -107,9 +107,12 @@ def main():
             print(f"[collect] skip missing zip: {zp}")
             continue
         # CI-PATCH: 按 zip 名中的库类型标记分子目录解包——组脚本命名约定
-        # <name>-<static|shared>-<toolchain>.zip。MSVC 的 .lib 歧义（导入
-        # 库 vs 真静态库扩展名相同）靠这个 per-file forced 消解：shared
-        # zip 里的 .lib 是 DLL 导入库，归 shared。
+        # <name>-<arch>-<mode>-<libtype>-<toolchain>.zip。MSVC 的 .lib 歧义
+        # （导入库 vs 真静态库扩展名相同）靠这个 per-file forced 消解：
+        # shared zip 里的 .lib 是 DLL 导入库，归 shared。
+        # CI-PATCH5: mode（debug/release）同样从 zip 名解析，解包到
+        # tmp_unzip/<mode>/<libtype>/ 两层——walk 时按路径段派生，
+        # 归包结构变为 <arch>/<mode>/<libtype>（用户约定的四元组拆包）。
         base = os.path.basename(zp).lower()
         if "-static-" in base or base.endswith("-static.zip"):
             sub = "static"
@@ -117,29 +120,50 @@ def main():
             sub = "shared"
         else:
             sub = "plain"
+        # mode 段：zip 名中 -debug- / -release- 标记，缺省 release
+        if "-debug-" in base or base.endswith("-debug.zip"):
+            mode_seg = "debug"
+        else:
+            mode_seg = "release"
         try:
             with zipfile.ZipFile(zp) as z:
-                z.extractall(os.path.join(tmp_unzip, sub))
+                z.extractall(os.path.join(tmp_unzip, mode_seg, sub))
         except zipfile.BadZipFile:
             print(f"[collect] WARN 损坏的 zip，跳过: {zp}")
             continue
     # 解包出的目录并入收集源（与 --src 同路处理）
+    # CI-PATCH5: 用户约定的最终打包结构按 mode 分层——
+    #   <out>/<os>/<arch>/<debug|release>/<static|shared>/
+    # 组脚本 zip 名约定 <name>-<arch>-<mode>-<libtype>-<toolchain>.zip
+    # 同时携带 mode 与 libtype，解包时一并解析，mode 未知回落 release。
+    # forced 只提供 libtype 消解 .lib 歧义；mode 由 source_root 末段
+    # （debug/release）注入 dest_dir。
+    srcs = []
     if os.path.isdir(tmp_unzip):
+        srcs.append(tmp_unzip)
         args.src.append(tmp_unzip)
 
     for src in args.src:
         if not os.path.isdir(src):
             print(f"[collect] skip missing: {src}")
             continue
-        # CI-PATCH: 来自 zip 解包的文件按其子目录（static/shared/plain）
-        # 派生 forced 分类——消解 .lib 的扩展名歧义（导入库 vs 真静态库）；
-        # .exp/.pdb 副产物跟随所在 zip 的库类型归 shared/static。
+        # CI-PATCH: 来自 zip 解包的文件按其子目录派生分类——
+        # 路径段形如 <mode>/<libtype>/...（CI-PATCH5：mode 层 +
+        # static/shared/plain 层）。libtype 层消解 .lib 的扩展名歧义
+        # （导入库 vs 真静态库）；.exp/.pdb 副产物跟随所在 zip 的库类型。
+        # mode 层决定归包目录（debug/release），--src 直连目录无 mode
+        # 层时归 release。
         for root, _dirs, files in os.walk(src):
             forced = ""
+            mode = "release"
             rel = os.path.relpath(root, src).replace("\\", "/").lower()
-            if rel == "static" or rel.startswith("static/"):
+            segs = [s for s in rel.split("/") if s]
+            if segs and segs[0] in ("debug", "release"):
+                mode = segs[0]
+                segs = segs[1:]
+            if "static" in segs:
                 forced = "static"
-            elif rel == "shared" or rel.startswith("shared/"):
+            elif "shared" in segs:
                 forced = "shared"
             for fn in files:
                 low = fn.lower()
@@ -162,25 +186,27 @@ def main():
                     elif args.libtype == "static":
                         kind = "static"
                 sub = kind if kind else "shared"  # .exp/.pdb 副产物默认 shared
-                dest_dir = os.path.join(target_root, args.arch, sub)
+                # CI-PATCH5: 归包目录带 mode 层 —— <arch>/<mode>/<libtype>
+                dest_dir = os.path.join(target_root, args.arch, mode, sub)
                 os.makedirs(dest_dir, exist_ok=True)
                 dest = os.path.join(dest_dir, fn)
                 src_file = os.path.join(root, fn)
                 if os.path.abspath(src_file) != os.path.abspath(dest):
                     shutil.copy2(src_file, dest)
                 collected += 1
-    print(f"[collect] {collected} files -> {target_root}/{args.arch}/{{static,shared}}")
+    print(f"[collect] {collected} files -> {target_root}/{args.arch}/{{debug,release}}/{{static,shared}}")
 
     # CI-PATCH: 清理解包临时目录
     if os.path.isdir(tmp_unzip):
         shutil.rmtree(tmp_unzip, ignore_errors=True)
 
-    # OHOS 特例：static/<arch>/libSDL3.so
+    # OHOS 特例：<arch>/<mode>/static/<arch>/libSDL3.so
     if args.sdl_so:
-        dest = os.path.join(target_root, args.arch, "static", args.arch)
-        os.makedirs(dest, exist_ok=True)
-        shutil.copy2(args.sdl_so, os.path.join(dest, os.path.basename(args.sdl_so)))
-        print(f"[collect] SDL3 so -> {dest}")
+        for m in ("release", "debug"):
+            dest = os.path.join(target_root, args.arch, m, "static", args.arch)
+            os.makedirs(dest, exist_ok=True)
+            shutil.copy2(args.sdl_so, os.path.join(dest, os.path.basename(args.sdl_so)))
+            print(f"[collect] SDL3 so -> {dest}")
 
 
 if __name__ == "__main__":

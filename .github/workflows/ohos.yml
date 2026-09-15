@@ -174,5 +174,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-libs-ohos-${{ matrix.arch }}
-          path: dist/native-libs-ohos-${{ matrix.arch }}.tar.gz
+          path: dist/native-libs-ohos-*
           retention-days: 30
