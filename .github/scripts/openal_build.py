@@ -609,6 +609,14 @@ def toolchain_cfg(platform, arch, toolchain, host, ctx, args):
         # 否则 CMake 按默认 iphoneos 设备 SDK 配置 x86_64
         if arch != "arm64-v8a":
             cfg += ["-DCMAKE_OSX_SYSROOT=iphonesimulator"]
+        # CI-PATCH2: Xcode 生成器默认对 iOS target 启用代码签名，CI 无
+        # 开发者证书必然失败（ios arm64 job 实测：Signing for "miniaudio"
+        # requires a development team）。构建的是不被 Xcode 消费的裸
+        # 静态/动态库，签名无意义——构建期与工程属性双层禁用。
+        cfg += [
+            "-DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO",
+            "-DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY=",
+        ]
 
     elif platform == "OSX":
         cfg += [
