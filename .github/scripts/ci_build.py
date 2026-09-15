@@ -183,10 +183,43 @@ def stage_imgui_deps(cxx_root: str, arch: str) -> str:
                 machine = struct.unpack("<H", fh.read(2))[0]
             return {0x8664: "x86_64", 0xAA64: "arm64", 0x14C: "x86",
                     0x1C4: "arm32"}.get(machine)
+        if head[:8] == b"!<arch>\n":        # GNU ar 归档（dlltool 导入库）
+            # CI-PATCH5: dlltool/lld 的导入库是 ar 容器，整体无 MZ 头 ——
+            # 上一版按"未知格式放行"导致 x64 libSDL3.dll.a 混入（CI 复测）。
+            # 遍历成员（60 字节头 + 数据，2 字节对齐），读第一个可判定
+            # 成员的机器架构：COFF 对象头 2 字节即 machine；短导入对象
+            # Sig1=0/Sig2=0xFFFF，machine 在偏移 6。
+            try:
+                with open(path, "rb") as fh:
+                    data = fh.read()
+            except OSError:
+                return None
+            machines = {0x8664: "x86_64", 0xAA64: "arm64",
+                        0x14C: "x86", 0x1C4: "arm32"}
+            off = 8
+            while off + 60 <= len(data):
+                size_field = data[off + 48:off + 58].strip()
+                if not size_field.isdigit():
+                    break
+                sz = int(size_field)
+                body = data[off + 60:off + 60 + sz]
+                mm = None
+                if body[:2] == b"MZ":
+                    o = struct.unpack_from("<I", body, 0x3C)[0]
+                    if o + 6 <= len(body) and body[o:o + 4] == b"PE\x00\x00":
+                        mm = machines.get(struct.unpack_from("<H", body, o + 4)[0])
+                elif len(body) >= 8 and body[2:4] == b"\xff\xff":
+                    mm = machines.get(struct.unpack_from("<H", body, 6)[0])
+                elif len(body) >= 2:
+                    mm = machines.get(struct.unpack_from("<H", body, 0)[0])
+                if mm:
+                    return mm
+                off += 60 + sz + (sz & 1)
+            return None
         if head[:4] in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe",
                         b"\xfe\xed\xfa\xcf", b"\xbe\xba\xfe\xca"):
             return "macho"
-        return None    # 未知格式（如 GNU ar 纯静态库）——放行
+        return None    # 未知格式（纯文本/空文件等）——放行
 
     # 目标架构 → 期望机器标识（用于 PE/ELF 白名单）
     want = "arm64" if "arm64" in arch else "x86_64"

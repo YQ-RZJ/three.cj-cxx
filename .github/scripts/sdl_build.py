@@ -132,6 +132,8 @@ def parse_args():
                     help="HarmonyOS / OpenHarmony NDK 路径 (或环境变量 OHOS_SDK)")
     ap.add_argument("--ndk", default=None,
                     help="Android NDK 路径 (或环境变量 ANDROID_NDK_HOME)")
+    ap.add_argument("--mingw", default=None,
+                    help="mingw-w64 / llvm-mingw 工具链根目录 (或环境变量 MINGW / LLVM_MINGW)")
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 4,
                     help="并行编译任务数 (默认 = CPU 核数)")
     ap.add_argument("--dist", default=DIST_DIR, help="zip 与日志输出目录")
@@ -290,9 +292,9 @@ def _vs_generator():
 def toolchains_for(platform, host, libtype):
     """每个平台候选工具链（按优先级）。WINDOWS 主机上 static 优先 mingw, 回退 msvc。"""
     if platform == "WINDOWS" and host == "WINDOWS":
-        if libtype == "static":
-            return ["mingw", "msvc"]
-        return ["mingw"]
+        # CI-PATCH: shared 也回退 msvc —— arm64 在无 llvm-mingw 时 mingw
+        # 工具链缺失，msvc 仍可产出正确架构的 shared 库
+        return ["mingw", "msvc"]
     return ["default"]
 
 
@@ -431,13 +433,34 @@ def cmake_configure_args(platform, mode, arch, libtype, toolchain, host, ctx):
             args += ["-G", gen, "-A", ("x64" if arch == "x86_64" else "ARM64")]
             return args
         # mingw: 优先真正的 MinGW gcc (产出 .a)。
-        # 注意: 不能优先 LLVM clang —— Windows 上 clang 默认目标为 MSVC ABI, 只会产出 .lib
-        cc = (find_tool("x86_64-w64-mingw32-gcc")
-              or find_tool("gcc")
-              or find_tool("clang") or "gcc")
-        cxx = (find_tool("x86_64-w64-mingw32-g++")
-               or find_tool("g++")
-               or find_tool("clang++") or "g++")
+        # 注意: 不能优先裸 LLVM clang —— Windows 上 clang 默认目标为 MSVC ABI, 只会产出 .lib
+        # CI-PATCH: 编译器三元组必须与目标架构一致 —— arm64 组合拿到
+        # x86_64 的 gcc 时 SDL3 会被整库编成 x64（CI 实测：x64
+        # libSDL3.dll.a 混入依赖暂存区，imgui arm64 链接报 machine type
+        # conflicts with arm64）。先在 --mingw 工具链目录找三元组前缀
+        # 编译器，再退 PATH；arm64 找不到匹配编译器时直接报错（宁可
+        # 失败也不悄悄产出异架构库）。
+        prefix = "aarch64-w64-mingw32-" if arch == "arm64" else "x86_64-w64-mingw32-"
+        search_dirs = []
+        _mwd = ctx.get("mingw")
+        if _mwd and os.path.isdir(_mwd):
+            if os.path.basename(_mwd).lower() == "bin":
+                search_dirs.append(_mwd)
+            search_dirs.append(os.path.join(_mwd, "bin"))
+        def _pick(name):
+            for d in search_dirs:
+                # Windows 上编译器带 .exe 后缀（llvm-mingw 实测），
+                # 无后缀与 .exe 两种都试
+                for ext in ("", ".exe" if os.name == "nt" else ""):
+                    cand = os.path.join(d, name + ext)
+                    if os.path.isfile(cand):
+                        return cand
+            return find_tool(name)
+        cc = _pick(prefix + "gcc") or _pick(prefix + "clang") or "gcc"
+        cxx = _pick(prefix + "g++") or _pick(prefix + "clang++") or "g++"
+        if arch != "x86_64" and not os.path.basename(cc).startswith(prefix):
+            raise RuntimeError("未找到 %s 工具链（--mingw 需指向 llvm-mingw 根目录），"
+                               "拒绝用 %s 产出异架构库" % (prefix, cc))
         args += ["-DCMAKE_C_COMPILER=" + cc, "-DCMAKE_CXX_COMPILER=" + cxx]
 
     # ---- MACOS / IOS: 需要 macOS 主机 (Xcode clang) ----
@@ -676,7 +699,10 @@ def main():
     libtypes = [t for t in libtypes if t in ALL_LIBTYPES]
 
     # 预解析 SDK
-    ctx = {"ohos": None, "ndk": None, "sdl_opts": args.sdl_opt}
+    _mw = args.mingw or os.environ.get("MINGW") or os.environ.get("LLVM_MINGW")
+    if _mw and os.path.basename(os.path.normpath(_mw)).lower() == "bin":
+        _mw = os.path.dirname(os.path.normpath(_mw))
+    ctx = {"ohos": None, "ndk": None, "sdl_opts": args.sdl_opt, "mingw": _mw}
     if "OHOS" in platforms:
         ctx["ohos"] = resolve_ohos_sdk(args)
         if not ctx["ohos"]:
