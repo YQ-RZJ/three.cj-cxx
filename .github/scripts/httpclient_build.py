@@ -429,10 +429,17 @@ def collect_outputs(ssl_dir, platform, arch, libtype):
                     rel = os.path.relpath(full, ssl_dir)
                     headers.append((full, rel))
 
-    # tlsbridge 库
-    tlsbridge_lib = os.path.join(BUILD_DIR, "tlsbridge", "libtlsbridge.a")
-    if os.path.isfile(tlsbridge_lib):
-        libs.append((tlsbridge_lib, os.path.join("lib", "libtlsbridge.a")))
+    # tlsbridge 库（CI-PATCH: 按平台收 libtype 对应产物——shared 为
+    # .so/.dll/.dylib，static 为 .a；上一版硬编码 .a 导致 shared 配置
+    # 下 zip 里出现静态库，ohos job 实测）
+    if libtype == "shared":
+        tlsbridge_names = ["libtlsbridge.so", "libtlsbridge.dll", "libtlsbridge.dylib"]
+    else:
+        tlsbridge_names = ["libtlsbridge.a"]
+    for nm in tlsbridge_names:
+        tlsbridge_lib = os.path.join(BUILD_DIR, "tlsbridge", nm)
+        if os.path.isfile(tlsbridge_lib):
+            libs.append((tlsbridge_lib, os.path.join("lib", nm)))
 
     # tlsbridge 头文件
     tlsbridge_header = os.path.join(TLSBRIDGE_DIR, "api.h")
@@ -1119,7 +1126,7 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
 # ---------------------------------------------------------------------------
 # tlsbridge 编译
 # ---------------------------------------------------------------------------
-def build_tlsbridge(platform, arch, mode, host, ctx, ssl_dir, log_path):
+def build_tlsbridge(platform, arch, mode, host, ctx, ssl_dir, log_path, libtype="static"):
     """
     编译 tlsbridge 包装库。
     将 tlsbridge/*.c 编译为静态库 libtlsbridge.a，
@@ -1201,6 +1208,29 @@ def build_tlsbridge(platform, arch, mode, host, ctx, ssl_dir, log_path):
         if run(cmd, cwd=SCRIPT_DIR, log=log_path) != 0:
             print("  [ERROR] 编译 %s 失败" % os.path.basename(src))
             return False
+
+    # CI-PATCH: shared 模式编动态库（libtlsbridge.so/dll/dylib）——上一版
+    # 无条件归档静态库，libtype=shared 配置下 zip 里仍出现 libtlsbridge.a
+    # （ohos job 实测）。链接期解析 libcrypto/libssl（OpenSSL 同为 shared
+    # 产物，在 ssl_dir 下）。Windows mingw 产物名 libtlsbridge.dll，非
+    # Windows 按平台 .so/.dylib；加载期由运行时按 rpath/同目录解析。
+    if libtype == "shared":
+        if platform == "WINDOWS":
+            dll_path = os.path.join(tlsbridge_out, "libtlsbridge.dll")
+        elif platform == "OSX" or platform == "IOS":
+            dll_path = os.path.join(tlsbridge_out, "libtlsbridge.dylib")
+        else:
+            dll_path = os.path.join(tlsbridge_out, "libtlsbridge.so")
+        link_cmd = [cc, "-shared", "-o", dll_path] + obj_files + ssl_libs.split()
+        # $ORIGIN rpath 仅 ELF（Linux/Android/OHOS）有效；macOS/Windows
+        # 运行时按同目录/PATH 解析，传 $ORIGIN 会被当字面量
+        if platform not in ("WINDOWS", "OSX", "IOS"):
+            link_cmd += ["-Wl,-rpath,$ORIGIN"]
+        if run(link_cmd, cwd=SCRIPT_DIR, log=log_path) != 0:
+            print("  [ERROR] 创建 %s 失败" % os.path.basename(dll_path))
+            return False
+        print("  [OK] tlsbridge 编译完成: %s" % dll_path)
+        return True
 
     # 链接为静态库
     lib_path = os.path.join(tlsbridge_out, "libtlsbridge.a")
@@ -1456,6 +1486,7 @@ def main():
                             log_path = os.path.join(LOG_DIR, "tlsbridge-%s.log" % combo)
                             if not build_tlsbridge(
                                 platform, arch, mode, host, ctx, OPENSSL_DIR, log_path,
+                                libtype,
                             ):
                                 any_failed = True
                                 results.append((combo, "fail", "tlsbridge 编译失败"))
