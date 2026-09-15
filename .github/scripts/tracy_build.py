@@ -673,22 +673,27 @@ def build_one(platform, mode, arch, ctx, args, log_path):
         strip_msvc_defaultlibs(obj)
 
     if shared:
-        # 链接动态库（替代静态归档）
+        # 链接动态库（替代静态归档）。CI-PATCH: 扩展名与系统库分平台——
+        # Windows 用 .dll 且必须链 ws2_32/dbghelp/secur32（TracyClient 引
+        # socket/SymGetLineFromAddr64/GetUserNameExA）；macOS/Linux 动态库
+        # 无 .dll 扩展（macOS .dylib，Linux .so），系统库由 libc/系统框架
+        # 提供，绝不能传 -lws2_32（macos runner 实测 library not found）
         if is_msvc:
             dll = os.path.join(lib_out, "tracyc.dll" if mode == "release" else "tracycd.dll")
             # MSVC 链接器即 link.exe（compile_cmd 的 cxx_cmd[0] 是 cl.exe，
             # 链接统一走 cl /link 让 vcvars INCLUDE/LIB 生效）
             link_cmd = list(cxx_cmd) + [obj, "/link", "/DLL", "/NOLOGO",
                                         "/OUT:" + dll]
-        else:
+        elif platform == "WINDOWS":
             dll = os.path.join(lib_out,
                                "libtracycd.dll" if mode == "debug" else "libtracyc.dll")
-            # CI-PATCH: DLL 链接必须解析全部符号（静态归档不做链接）——
-            # TracyClient 在 Windows 引 ws2_32（socket/WSAPoll）、dbghelp
-            # （SymGetLineFromAddr64）、secur32（GetUserNameExA，本机实测
-            # 缺它即报 undefined）等系统库
             link_cmd = list(cxx_cmd) + ["-shared", "-o", dll, obj,
                                         "-lws2_32", "-ldbghelp", "-lsecur32"]
+        else:
+            ext = "dylib" if platform == "OSX" else "so"
+            dll = os.path.join(lib_out,
+                               "libtracycd.%s" % ext if mode == "debug" else "libtracyc.%s" % ext)
+            link_cmd = list(cxx_cmd) + ["-shared", "-o", dll, obj]
         print("  [LINK] %s" % " ".join(link_cmd))
         if run_logged(link_cmd, env, log_path) != 0:
             print("  [FAIL] 动态库链接失败，日志: %s" % log_path)
@@ -749,10 +754,11 @@ def package(platform, mode, arch, toolchain, dist_dir, lib_file, libtype="static
                     rel = os.path.relpath(full, TRACY_PUB)
                     z.write(full, os.path.join(name, "include", rel))
         # 库产物（.a 优先；MSVC 场景同一目录下 .lib 与 .a 均打包；
-        # CI-PATCH: shared 模式收 .dll——libtracyc.dll/libtracycd.dll）
+        # CI-PATCH: shared 模式按平台收动态库——.dll/.dylib/.so）
         lib_dir = os.path.dirname(lib_file)
         for f in sorted(os.listdir(lib_dir)):
-            if f.startswith("libtracyc") and (f.endswith(".a") or f.endswith(".lib") or f.endswith(".dll")):
+            if f.startswith("libtracyc") and (f.endswith(".a") or f.endswith(".lib")
+                                              or f.endswith(".dll") or f.endswith(".dylib") or f.endswith(".so")):
                 z.write(os.path.join(lib_dir, f), os.path.join(name, "lib", f))
     return zip_path
 
@@ -856,14 +862,21 @@ def main():
                 else:
                     tc = platform.lower()
 
-                # CI-PATCH: shared 模式的产物是 DLL（build_one 返回 True
-                # 已链接完成），直接定位 DLL 打包；zip 名补 libtype 段
-                # （collect_dist 靠 -shared-/-static- 消解 .lib/.a 归类）
+                # CI-PATCH: shared 模式的产物是动态库（build_one 返回 True
+                # 已链接完成），直接定位动态库打包；扩展名分平台（Windows
+                # .dll，macOS .dylib，其余 .so——链接段同款规则）；zip 名补
+                # libtype 段（collect_dist 靠 -shared-/-static- 消解归类）
                 libtype = getattr(args, "libtype", "static").split(",")[0]
                 if libtype == "shared":
+                    if platform == "WINDOWS":
+                        lib_ext = "dll"
+                    elif platform == "OSX":
+                        lib_ext = "dylib"
+                    else:
+                        lib_ext = "so"
                     lib_file = os.path.join(
                         OUTPUT_DIR, "build-%s-%s-%s" % (platform.lower(), arch, mode), "lib",
-                        ("libtracycd.dll" if mode == "debug" else "libtracyc.dll"))
+                        ("libtracycd.%s" % lib_ext if mode == "debug" else "libtracyc.%s" % lib_ext))
                     combo_name += "-shared"
                 else:
                     lib_file = os.path.join(
