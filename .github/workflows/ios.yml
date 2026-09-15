@@ -36,7 +36,7 @@ jobs:
       - id: set
         run: |
           V="${{ inputs.arches }}"
-          if [ -z "$V" ]; then V="arm64-v8a"; fi
+          if [ -z "$V" ]; then V="arm64-v8a,x86_64"; fi
           echo "arches=[$(echo "$V" | awk -F',' '{for(i=1;i<=NF;i++){gsub(/ /,"",$i); printf "%s\"%s\"", (i>1?",":""), $i}}')]" >> "$GITHUB_OUTPUT"
 
   build:
