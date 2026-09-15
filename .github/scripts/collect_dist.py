@@ -50,6 +50,13 @@ def classify(name: str, forced: str) -> str:
     # （windows job 实测 libdlbridge.dll.a / librequirecj_ffi.dll.a 落错）
     if low.endswith(".dll.a") or low.endswith(".dll.lib"):
         return "shared"
+    # CI-PATCH4: cangjie-runtime-stub.lib 是 requireCJLib 的运行时导入桩
+    # （dlltool/lib 由 cangjie-runtime-stub.def 生成，InitCJRuntime 等符号
+    # 加载期由宿主侧仓颉运行时 DLL 解析）——只随 shared 动态库消费，
+    # 静态链接用不到它；按 .lib 归 static 是落错（windows arm64 job 实测
+    # zip 里 static/ 下孤零零只有这一个文件，shared/ 38 个）
+    if "runtime-stub" in low or "runtime_stub" in low:
+        return "shared"
     if ext in STATIC_EXT:
         return "static"
     if ext in SHARED_EXT:

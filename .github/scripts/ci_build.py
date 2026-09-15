@@ -202,6 +202,14 @@ def stage_imgui_deps(cxx_root: str, arch: str) -> str:
                 if not size_field.isdigit():
                     break
                 sz = int(size_field)
+                # 跳过符号表/长名表成员（名字为 "/"、"//"、"/SYM64/"）——
+                # 其内容是索引数据而非 COFF 对象，按对象头读前 2 字节
+                # 可能撞上 0x8664/0xAA64 造成误判（如 GNU ar 大端符号计数
+                # 恰为 0x6486 时小端读出 0x8664）
+                mname = data[off:off + 16].strip()
+                if mname in (b"/", b"//") or mname.startswith(b"/SYM64"):
+                    off += 60 + sz + (sz & 1)
+                    continue
                 body = data[off + 60:off + 60 + sz]
                 mm = None
                 if body[:2] == b"MZ":
