@@ -272,21 +272,24 @@ def _vs_generator():
     """通过 vswhere 探测已安装的 Visual Studio, 返回 CMake 生成器名或 None"""
     vswhere = r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
     if not os.path.isfile(vswhere):
-        return None
+        vswhere = r"C:\Program Files\Microsoft Visual Studio\Installer\vswhere.exe"
+        if not os.path.isfile(vswhere):
+            return None
+    gen_map = {"15": "Visual Studio 15 2017",
+               "16": "Visual Studio 16 2019",
+               "17": "Visual Studio 17 2022",
+               "18": "Visual Studio 18 2026"}
     try:
+        # CI-PATCH: 以 installationVersion 主版本号为判据 —— 旧实现读
+        # catalog_productLineVersion（如 2026），映射表只有 2022/2019/2017，
+        # VS 2026 返回 None 导致 msvc 回退被整体跳过（CI 实测）。
         out = subprocess.check_output(
-            [vswhere, "-latest", "-products", "*", "-property", "catalog_productLineVersion"],
+            [vswhere, "-latest", "-products", "*", "-property", "installationVersion"],
             stderr=subprocess.DEVNULL).decode("utf-8", "replace").strip()
+        major = out.split(".")[0] if out else ""
+        return gen_map.get(major)
     except Exception:
         return None
-    ver = out.split(".")[0] if out else ""
-    if ver == "2022":
-        return "Visual Studio 17 2022"
-    if ver == "2019":
-        return "Visual Studio 16 2019"
-    if ver == "2017":
-        return "Visual Studio 15 2017"
-    return None
 
 
 def toolchains_for(platform, host, libtype):
@@ -462,6 +465,13 @@ def cmake_configure_args(platform, mode, arch, libtype, toolchain, host, ctx):
             raise RuntimeError("未找到 %s 工具链（--mingw 需指向 llvm-mingw 根目录），"
                                "拒绝用 %s 产出异架构库" % (prefix, cc))
         args += ["-DCMAKE_C_COMPILER=" + cc, "-DCMAKE_CXX_COMPILER=" + cxx]
+        # CI-PATCH: RC 编译器（.rc → version.rc.obj）也必须与目标架构匹配
+        # —— CMake 默认从 PATH 捡裸 windres（x64），arm64 构建在链接
+        # version.rc.obj 时报 "machine type x64 conflicts with arm64"。
+        # llvm-mingw / mingw-w64 均提供三元组前缀的 windres。
+        rc = _pick(prefix + "windres")
+        if rc:
+            args += ["-DCMAKE_RC_COMPILER=" + rc]
 
     # ---- MACOS / IOS: 需要 macOS 主机 (Xcode clang) ----
     elif platform in ("MACOS", "IOS"):
