@@ -151,10 +151,56 @@ def stage_imgui_deps(cxx_root: str, arch: str) -> str:
     bgfx::/SDL 符号失败（macOS 实测）。libbgfx 或 libSDL3 任一缺失
     时返回空串：imgui 会干净地跳过 shared 组合而非带残缺依赖硬链。"""
     import glob
+    import struct
     stage = os.path.join(cxx_root, "ci_deps", arch)
     os.makedirs(stage, exist_ok=True)
     dep_stems = ("libbgfx", "libbx", "libbimg", "libSDL3", "libsdl3",
                  "bgfx", "bx", "bimg", "SDL3", "sdl3")
+
+    # CI-PATCH4: 机器架构校验 —— 打包规则调整后收集源里可能混入异架构
+    # 库（Windows arm64-v8a 实测：sdl 组产出的 x64 libSDL3.dll.a 混入，
+    # imgui shared 链接报 "machine type x64 conflicts with arm64"）。
+    # PE/COFF：读 PE 头 machine 字段；ELF/Mach-O：读魔数后 e_machine/cputype。
+    # 校验失败的文件跳过（视为本轮产物异常，不污染依赖）。
+    def _lib_machine(path):
+        try:
+            with open(path, "rb") as fh:
+                head = fh.read(4096)
+        except OSError:
+            return None
+        if head[:4] == b"\x7fELF":          # ELF
+            if len(head) < 20:
+                return None
+            em = struct.unpack_from("<H", head, 18)[0]
+            return {62: "x86_64", 183: "arm64", 40: "arm32"}.get(em)
+        if head[:2] == b"MZ":               # PE/COFF（.lib/.dll.a）
+            off = struct.unpack_from("<I", head, 0x3C)[0]
+            # PE 签名可能不在前 4K（极端 stub），读不到按未知放行
+            with open(path, "rb") as fh:
+                fh.seek(off)
+                if fh.read(4) != b"PE\0\0":
+                    return None
+                machine = struct.unpack("<H", fh.read(2))[0]
+            return {0x8664: "x86_64", 0xAA64: "arm64", 0x14C: "x86",
+                    0x1C4: "arm32"}.get(machine)
+        if head[:4] in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe",
+                        b"\xfe\xed\xfa\xcf", b"\xbe\xba\xfe\xca"):
+            return "macho"
+        return None    # 未知格式（如 GNU ar 纯静态库）——放行
+
+    # 目标架构 → 期望机器标识（用于 PE/ELF 白名单）
+    want = "arm64" if "arm64" in arch else "x86_64"
+
+    # 暂存区自清理：上一轮残留的异架构库（ci_deps/ 不在任何 --clean
+    # 范围内，错误文件会跨轮存活，必须在此主动清除）
+    if os.path.isdir(stage):
+        for old in os.listdir(stage):
+            m = _lib_machine(os.path.join(stage, old))
+            if m is not None and m not in (want, "macho"):
+                print("[ci] WARN stage_imgui_deps: 清除残留异架构库 %s "
+                      "(machine=%s, want=%s)" % (old, m, want), flush=True)
+                os.remove(os.path.join(stage, old))
+
     for src_root in ("output", "build"):
         base = os.path.join(cxx_root, src_root)
         if not os.path.isdir(base):
@@ -163,6 +209,11 @@ def stage_imgui_deps(cxx_root: str, arch: str) -> str:
             for f in glob.glob(os.path.join(base, "**", pattern), recursive=True):
                 stem = os.path.basename(f)
                 if not any(s.lower() in stem.lower() for s in dep_stems):
+                    continue
+                m = _lib_machine(f)
+                if m is not None and m not in (want, "macho"):
+                    print("[ci] WARN stage_imgui_deps: 跳过异架构库 %s "
+                          "(machine=%s, want=%s)" % (stem, m, want), flush=True)
                     continue
                 dst = os.path.join(stage, stem)
                 if not os.path.isfile(dst):

@@ -709,7 +709,10 @@ def toolchain_cfg(platform, arch, toolchain, host, ctx, args):
             # 宏（否则 #error "When using MSVC you must set /Zc:__cplusplus
             # compiler option"，windows x86_64 msvc job 实测）——MSVC 默认
             # __cplusplus 仍是 199711L，必须显式开该开关。
-            cfg += ["-DCMAKE_CXX_FLAGS=/Zc:__cplusplus"]
+            # CI-PATCH2: bx 还要求标准预处理器（否则 #error "When using MSVC
+            # you must set /Zc:preprocessor compiler option"，windows arm64
+            # msvc 回退 job 实测——传统预处理器同样触发该 #error）。
+            cfg += ["-DCMAKE_CXX_FLAGS=/Zc:__cplusplus /Zc:preprocessor"]
         else:
             # mingw（Windows 主机本机或非 Windows 主机交叉）
             tc = probe_mingw(arch, ctx.get("mingw"))
