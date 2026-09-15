@@ -63,8 +63,11 @@ def main():
                     help="目标系统目录名：linux/windows/macos/android/ohos/ios")
     ap.add_argument("--arch", required=True, help="架构目录名：x86_64 / arm64-v8a")
     ap.add_argument("--out", default="dist", help="归包根目录（默认 dist/）")
-    ap.add_argument("--libtype", choices=["static", "shared"], default=None,
-                    help="强制分类（无扩展名可判别时使用）")
+    ap.add_argument("--libtype", default=None,
+                    # CI-PATCH: 允许多值（CI 双模式传 static,shared）——旧
+                    # choices=["static","shared"] 会 argparse 报 invalid
+                    # choice 直接退出；歧义消解只看是否含 "shared"
+                    help="库类型：static / shared，可逗号分隔多值")
     ap.add_argument("--src", action="append", default=[],
                     help="产物来源目录，可多次指定；递归收集其中的库文件")
     ap.add_argument("--zip", action="append", default=[],
@@ -141,10 +144,16 @@ def main():
                 if not low.endswith(LIB_ARTIFACT_EXTS):
                     continue
                 kind = classify(fn, forced)
-                if not kind and low.endswith(".lib") and args.libtype in ("static", "shared"):
-                    # shared 配置下 stage 目录的 .lib 是 DLL 导入库
-                    # （cangjie-runtime-stub.lib 实测落错 static）
-                    kind = args.libtype
+                if not kind and low.endswith(".lib"):
+                    # CI-PATCH3: .lib 歧义消解兼容多值 libtype——CI 双模式
+                    # 跑 --libtype static,shared 时旧判断 in ("static",
+                    # "shared") 不命中，stub.lib 等导入库回落 static 落错
+                    # （windows job 实测）；含 shared 即按 shared（PE 上
+                    # .lib 主流是 DLL 导入库）
+                    if "shared" in (args.libtype or ""):
+                        kind = "shared"
+                    elif args.libtype == "static":
+                        kind = "static"
                 sub = kind if kind else "shared"  # .exp/.pdb 副产物默认 shared
                 dest_dir = os.path.join(target_root, args.arch, sub)
                 os.makedirs(dest_dir, exist_ok=True)
