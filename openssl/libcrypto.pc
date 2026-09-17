@@ -1,0 +1,14 @@
+# This file should be used when building against this OpenSSL build, and should never be installed
+prefix=/d/workspace/Projects/three.cj/openssl4cj/cxx/openssl
+exec_prefix=${prefix}
+libdir=${exec_prefix}
+includedir=${prefix}/include ${prefix}/./include 
+enginesdir=${libdir}/engines
+modulesdir=${libdir}/providers
+
+Name: OpenSSL-libcrypto
+Description: OpenSSL cryptography library
+Version: 3.6.4
+Libs: -L${libdir} -lcrypto
+Libs.private: -lws2_32 -lgdi32 -lcrypt32
+Cflags: -I${prefix}/include  -I${prefix}/./include 

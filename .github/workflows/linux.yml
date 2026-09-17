@@ -1,0 +1,117 @@
+name: native-libs-linux
+
+on:
+  workflow_dispatch:
+    inputs:
+      arches:
+        description: "架构，逗号分隔：x86_64,arm64-v8a（留空=全部）"
+        required: false
+        default: ""
+      modes:
+        description: "debug/release（留空=脚本默认全编排）"
+        required: false
+        default: ""
+      libtypes:
+        description: "static,shared（留空=脚本默认全编排）"
+        required: false
+        default: ""
+      groups:
+        description: "组清单（按序，留空则按全量组顺序）"
+        required: false
+        default: "bgfx,sdl,imgui,httpclient,jolt,luajit,openal,tracy,cjbridge"
+      libs:
+        description: "库清单（按序，留空=全部库）"
+        required: false
+        default: "bx,bimg,bimg_capi,bgfx,geometryc_capi,shaderc_capi,sdl,cimgui,openssl,tlsbridge,openal,miniaudio,jolt,luajit,ffi,napi,dlbridge,tracy"
+
+permissions:
+  contents: read
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      arches: ${{ steps.set.outputs.arches }}
+    steps:
+      - id: set
+        run: |
+          if [ -n "${{ inputs.arches }}" ]; then
+            echo "arches=[$(echo "${{ inputs.arches }}" | awk -F',' '{for(i=1;i<=NF;i++){gsub(/ /,"",$i); printf "%s\"%s\"", (i>1?",":""), $i}}')]" >> "$GITHUB_OUTPUT"
+          else
+            echo 'arches=["x86_64","arm64-v8a"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: config
+    name: ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(needs.config.outputs.arches) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps (X11/OpenGL for bgfx)
+        run: |
+          sudo apt-get update
+          # CI-PATCH: SDL 的 CheckX11 要求 X11 库 + Xext 等扩展头同时成立
+          # 才启用 X11 后端——缺扩展时静默关闭并在汇总阶段硬检查报错
+          # （x86_64 job 实测：只装 libx11-dev 时 Video drivers 退化为
+          # dummy offscreen 后撞 431 行错误）。x86_64 与 arm64 两侧都
+          # 需要扩展全家桶。
+          sudo apt-get install -y libx11-dev libxext-dev libxfixes-dev \
+            libxcursor-dev libxi-dev libxrandr-dev libxrender-dev \
+            libxss-dev libxtst-dev libgl1-mesa-dev
+
+      - name: Install cross toolchain (arm64)
+        if: matrix.arch == 'arm64-v8a'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-aarch64-linux-gnu gcc-aarch64-linux-gnu
+          # bgfx 的 CMakeLists 在 Linux 上 find_package(X11/OpenGL REQUIRED)，
+          # arm64 交叉需装 :arm64 多架构运行时库（依赖链根 libc6:arm64）。
+          # 两个 apt 源要点：
+          #   1) noble runner 的 amd64 源是 deb822 格式（ubuntu.sources），
+          #      经典 one-line 的 sed 改不到——必须给 ubuntu.sources 加
+          #      Architectures: amd64，否则 archive/security.ubuntu.com 会被
+          #      索要 arm64 索引 → 404 → arm64 索引残缺 → 依赖解析断链；
+          #   2) security.ubuntu.com 不发布 arm64，arm64 的 security/updates
+          #      一律走 ports.ubuntu.com，arm64.list 需列全全部套件。
+          sudo dpkg --add-architecture arm64
+          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            sudo sed -i 's/^Types: deb$/Types: deb\nArchitectures: amd64/' \
+              /etc/apt/sources.list.d/ubuntu.sources
+          fi
+          sudo sed -i 's/^deb http/deb [arch=amd64] http/' /etc/apt/sources.list 2>/dev/null || true
+          CODENAME="$(lsb_release -cs)"
+          {
+            printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s main universe\n' "$CODENAME"
+            printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s-updates main universe\n' "$CODENAME"
+            printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s-security main universe\n' "$CODENAME"
+          } | sudo tee /etc/apt/sources.list.d/arm64.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y libc6:arm64 libx11-6:arm64 libx11-dev:arm64 \
+            libxext6:arm64 libxext-dev:arm64 \
+            libxfixes-dev:arm64 libxcursor-dev:arm64 libxi-dev:arm64 \
+            libxrandr-dev:arm64 libxrender-dev:arm64 libxss-dev:arm64 \
+            libxtst-dev:arm64 \
+            libgl1:arm64 libgl1-mesa-dev:arm64 || \
+            echo "[WARN] arm64 X11/GL 多架构包安装失败（sdl_build.py 会按存在性关闭缺失的 X11 扩展）"
+
+      - name: Build all libraries
+        run: |
+          CMD="python .github/scripts/ci_build.py --platform LINUX --arch ${{ matrix.arch }}"
+          if [ -n "${{ inputs.modes }}" ]; then CMD="$CMD --modes ${{ inputs.modes }}"; fi
+          if [ -n "${{ inputs.libtypes }}" ]; then CMD="$CMD --libtypes ${{ inputs.libtypes }}"; fi
+          if [ -n "${{ inputs.groups }}" ]; then CMD="$CMD --groups ${{ inputs.groups }}"; fi
+          if [ -n "${{ inputs.libs }}" ]; then CMD="$CMD --libs ${{ inputs.libs }}"; fi
+          eval "$CMD"
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-libs-linux-${{ matrix.arch }}
+          path: dist/native-libs-linux-*
+          retention-days: 30

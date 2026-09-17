@@ -1,0 +1,178 @@
+name: native-libs-ohos
+
+on:
+  workflow_dispatch:
+    inputs:
+      sdk-url:
+        description: "OHOS SDK 下载地址，默认华为云 6.1-LTS（包内含 windows/linux 两套组件包，Windows runner 取 windows 套件）"
+        required: false
+        default: "https://repo.huaweicloud.com/harmonyos/os/6.1-LTS/ohos-sdk-windows_linux-public.tar.gz"
+      arches:
+        description: "架构，逗号分隔：x86_64,arm64-v8a（留空=全部）"
+        required: false
+        default: ""
+      modes:
+        description: "debug/release（留空=脚本默认全编排）"
+        required: false
+        default: ""
+      libtypes:
+        description: "static,shared（留空=脚本默认全编排）"
+        required: false
+        default: ""
+      groups:
+        description: "组清单（按序，留空则按全量组顺序）"
+        required: false
+        default: "bgfx,sdl,imgui,httpclient,jolt,luajit,openal,tracy,cjbridge"
+      libs:
+        description: "库清单（按序，留空=全部库）"
+        required: false
+        default: "bx,bimg,bimg_capi,bgfx,geometryc_capi,shaderc_capi,sdl,cimgui,openssl,tlsbridge,openal,miniaudio,jolt,luajit,ffi,napi,dlbridge,tracy"
+
+permissions:
+  contents: read
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      arches: ${{ steps.set.outputs.arches }}
+    steps:
+      - id: set
+        run: |
+          V="${{ inputs.arches }}"
+          if [ -z "$V" ]; then V="arm64-v8a,x86_64"; fi
+          echo "arches=[$(echo "$V" | awk -F',' '{for(i=1;i<=NF;i++){gsub(/ /,"",$i); printf "%s\"%s\"", (i>1?",":""), $i}}')]" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: config
+    name: ${{ matrix.arch }}
+    runs-on: windows-latest
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(needs.config.outputs.arches) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache OHOS SDK
+        id: sdk-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/ohos-sdk-native
+          key: ohos-sdk-native-6.1-LTS-windows
+
+      - name: Download & extract OHOS SDK (windows native)
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: |
+          cd "$RUNNER_TEMP"
+          # 外层包结构（6.1-LTS 与 6.0.x 相同）：tar 解出 ohos-sdk/windows/
+          # ohos-sdk/linux/，windows/ 下是各组件 zip（native-windows-x64-*.zip）
+          # CI-PATCH: 3.2GB 大文件长链下载，华为云 CDN 边缘节点会偶发主动
+          # 断连（curl 56 "schannel: server closed abruptly"——本机对同一
+          # URL 的 HEAD/Range 分段实测全部正常，非协议兼容问题）。加
+          # 重试 + 断点续传（-C -），并对最终文件大小做完整性守卫。
+          EXPECT_SIZE=3236338192   # Content-Length @ 6.1-LTS（换 SDK 时同步改）
+          for i in 1 2 3 4 5; do
+            curl -fsSL -C - --retry 3 --retry-delay 5 --retry-all-errors \
+              --connect-timeout 30 \
+              "${{ inputs.sdk-url }}" -o ohos-sdk.tar.gz && break
+            echo "[WARN] 下载第 $i 次失败（curl exit=$?），重试剩余 $((5 - i)) 次"
+            sleep 10
+          done
+          ACTUAL_SIZE=$(stat -c %s ohos-sdk.tar.gz 2>/dev/null || wc -c < ohos-sdk.tar.gz)
+          echo "downloaded size=$ACTUAL_SIZE expect>=$EXPECT_SIZE"
+          if [ "$ACTUAL_SIZE" -lt "$EXPECT_SIZE" ]; then
+            echo "[ERROR] SDK 下载不完整（$ACTUAL_SIZE < $EXPECT_SIZE），重试 5 次后仍失败"
+            exit 1
+          fi
+          tar -xzf ohos-sdk.tar.gz
+          NATIVE_ZIP=$(find . -type f -name "native*windows*.zip" | head -1)
+          if [ -z "$NATIVE_ZIP" ]; then
+            echo "[ERROR] 未找到 windows native 组件 zip，实际结构如下："
+            find . -maxdepth 4 \( -type d -o -name "*.zip" -o -name "*.tar.gz" \) | head -40
+            exit 1
+          fi
+          echo "NATIVE_ZIP=$NATIVE_ZIP"
+          # CI-PATCH: Git Bash 不带 unzip，7z 也不在 Git Bash 的 PATH
+          # （windows runner 实测：find 命中 zip 后 7z/兜底双双无输出
+          # exit 1）。改为 PowerShell Expand-Archive 主路径（runner 必有
+          # powershell.exe），7z 仅作存在时的快路径；失败时打印诊断。
+          ZWIN=$(cygpath -w "$(pwd)" 2>/dev/null || pwd)
+          ZWIN_FILE=$(cygpath -w "$NATIVE_ZIP" 2>/dev/null || echo "$NATIVE_ZIP")
+          if [ -x "/c/Program Files/7-Zip/7z.exe" ]; then
+            "/c/Program Files/7-Zip/7z.exe" x -y "$NATIVE_ZIP" || {
+              echo "[ERROR] 7z 解压失败（exit=$?）"; exit 1; }
+          else
+            echo "[INFO] 7z 不可用，改用 PowerShell Expand-Archive（可能较慢）"
+            powershell.exe -NoProfile -Command "Expand-Archive -LiteralPath '$ZWIN_FILE' -DestinationPath '$ZWIN' -Force" || {
+              echo "[ERROR] Expand-Archive 解压失败（zip=$ZWIN_FILE dest=$ZWIN）"; exit 1; }
+          fi
+          # CI-PATCH: 组件 zip 解出的顶层目录就是 native/（7z 实测 27777
+          # 文件全部落在 native/ 下，路径不含 "windows" 字样）——旧 find
+          # 后跟 grep -i windows 永远空匹配；pipefail 下 grep 空匹配直接
+          # 终结脚本（7z 成功后无声 exit 1 的元凶）。直接找 native 目录。
+          NATIVE_DIR=$(find . -maxdepth 4 -type d -name native | head -1)
+          if [ -z "$NATIVE_DIR" ]; then
+            echo "[ERROR] 解包后仍未找到 native 目录，实际结构如下："
+            find . -maxdepth 4 -type d | head -30
+            exit 1
+          fi
+          echo "NATIVE_DIR=$NATIVE_DIR"
+          mkdir -p ~/ohos-sdk-native
+          cp -r "$NATIVE_DIR"/. ~/ohos-sdk-native/
+          echo "SDK native contents:" && ls ~/ohos-sdk-native | head
+
+      # CI-PATCH: 移植自 windows.yml（arm64 job 已验证）——runner 预装的
+      # C:\msys64 是精简实例（无 perl），httpclient 的 openssl Configure
+      # exit 127（OHOS job 实测）。固定安装根 + perl，经 MSYS2_ROOT 传给
+      # 各 build.py。
+      - name: Install MSYS2 + toolchain (openssl needs perl)
+        uses: msys2/setup-msys2@v2
+        with:
+          update: false
+          msystem: MINGW64
+          location: C:\msys2-full
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            make
+            perl
+            python
+
+      - name: Export MSYS2 root
+        shell: pwsh
+        run: |
+          "MSYS2_ROOT=C:\msys2-full" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build all libraries (incl. SDL3 shared for static packaging)
+        run: |
+          CMD="python .github/scripts/ci_build.py --platform OHOS --arch ${{ matrix.arch }} --ohos-sdk \"$HOME/ohos-sdk-native\""
+          if [ -n "${{ inputs.modes }}" ]; then CMD="$CMD --modes ${{ inputs.modes }}"; fi
+          if [ -n "${{ inputs.libtypes }}" ]; then CMD="$CMD --libtypes ${{ inputs.libtypes }}"; fi
+          if [ -n "${{ inputs.groups }}" ]; then CMD="$CMD --groups ${{ inputs.groups }}"; fi
+          if [ -n "${{ inputs.libs }}" ]; then CMD="$CMD --libs ${{ inputs.libs }}"; fi
+          eval "$CMD"
+
+      # OHOS 特例：static 目录内需带 <arch>/libSDL3.so（对齐 three/test/ohos/base/entry/libs）
+      - name: Attach libSDL3.so into static package
+        run: |
+          SO=dist/ohos/${{ matrix.arch }}/shared/libSDL3.so
+          if [ -f "$SO" ]; then
+            mkdir -p dist/ohos/${{ matrix.arch }}/static/${{ matrix.arch }}
+            cp "$SO" dist/ohos/${{ matrix.arch }}/static/${{ matrix.arch }}/libSDL3.so
+            echo "attached: static/${{ matrix.arch }}/libSDL3.so"
+          else
+            echo "::warning::libSDL3.so not found in shared output; static package missing SDL3 dylib"
+          fi
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-libs-ohos-${{ matrix.arch }}
+          path: dist/native-libs-ohos-*
+          retention-days: 30

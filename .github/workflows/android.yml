@@ -1,0 +1,81 @@
+name: native-libs-android
+
+on:
+  workflow_dispatch:
+    inputs:
+      ndk-version:
+        description: "Android NDK 固定版本（runner 上安装该版本）"
+        required: false
+        default: "r23c"
+      arches:
+        description: "架构，逗号分隔：x86_64,arm64-v8a（留空=全部）"
+        required: false
+        default: ""
+      modes:
+        description: "debug/release（留空=脚本默认全编排）"
+        required: false
+        default: ""
+      libtypes:
+        description: "static,shared（留空=脚本默认全编排）"
+        required: false
+        default: ""
+      groups:
+        description: "组清单（按序，留空则按全量组顺序）"
+        required: false
+        default: "bgfx,sdl,imgui,httpclient,jolt,luajit,openal,tracy,cjbridge"
+      libs:
+        description: "库清单（按序，留空=全部库）"
+        required: false
+        default: "bx,bimg,bimg_capi,bgfx,geometryc_capi,shaderc_capi,sdl,cimgui,openssl,tlsbridge,openal,miniaudio,jolt,luajit,ffi,napi,dlbridge,tracy"
+
+permissions:
+  contents: read
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      arches: ${{ steps.set.outputs.arches }}
+    steps:
+      - id: set
+        run: |
+          if [ -n "${{ inputs.arches }}" ]; then
+            echo "arches=[$(echo "${{ inputs.arches }}" | awk -F',' '{for(i=1;i<=NF;i++){gsub(/ /,"",$i); printf "%s\"%s\"", (i>1?",":""), $i}}')]" >> "$GITHUB_OUTPUT"
+          else
+            echo 'arches=["x86_64","arm64-v8a"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: config
+    name: ${{ matrix.arch }}
+    runs-on: ubuntu-latest       # ndk 交叉编译在 linux runner 上进行（更快且各 build.py 已验证 ndk 工具链）
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(needs.config.outputs.arches) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned NDK (${{ inputs.ndk-version }})
+        run: |
+          cd $RUNNER_TEMP
+          wget -q https://dl.google.com/android/repository/android-ndk-${{ inputs.ndk-version }}-linux.zip
+          unzip -q android-ndk-${{ inputs.ndk-version }}-linux.zip
+          echo "NDK_HOME=$RUNNER_TEMP/android-ndk-${{ inputs.ndk-version }}" >> $GITHUB_ENV
+
+      - name: Build all libraries
+        run: |
+          CMD="python3 .github/scripts/ci_build.py --platform ANDROID --arch ${{ matrix.arch }} --ndk \"$NDK_HOME\""
+          if [ -n "${{ inputs.modes }}" ]; then CMD="$CMD --modes ${{ inputs.modes }}"; fi
+          if [ -n "${{ inputs.libtypes }}" ]; then CMD="$CMD --libtypes ${{ inputs.libtypes }}"; fi
+          if [ -n "${{ inputs.groups }}" ]; then CMD="$CMD --groups ${{ inputs.groups }}"; fi
+          if [ -n "${{ inputs.libs }}" ]; then CMD="$CMD --libs ${{ inputs.libs }}"; fi
+          eval "$CMD"
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-libs-android-${{ matrix.arch }}
+          path: dist/native-libs-android-*
+          retention-days: 30

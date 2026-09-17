@@ -1,0 +1,133 @@
+name: native-libs-windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      arches:
+        description: "架构，逗号分隔：x86_64,arm64-v8a（留空=全部）"
+        required: false
+        default: ""
+      modes:
+        description: "debug/release（留空=脚本默认全编排）"
+        required: false
+        default: ""
+      libtypes:
+        description: "static,shared（留空=脚本默认全编排）"
+        required: false
+        default: ""
+      groups:
+        description: "组清单（按序，留空则按全量组顺序）"
+        required: false
+        default: "bgfx,sdl,imgui,httpclient,jolt,luajit,openal,tracy,cjbridge"
+      libs:
+        description: "库清单（按序，留空=全部库）"
+        required: false
+        default: "bx,bimg,bimg_capi,bgfx,geometryc_capi,shaderc_capi,sdl,cimgui,openssl,tlsbridge,openal,miniaudio,jolt,luajit,ffi,napi,dlbridge,tracy"
+      llvm-mingw-url:
+        description: "llvm-mingw 下载地址，可改版本。必须用 msvcrt 变体——"
+        required: false
+        # CI-PATCH9: 锁定 20220906（LLVM 15.0.0）——三方库（OpenAL 等）的
+        # libc++ 符号须与仓颉 SDK 的链接器/运行时同代：仓颉 third_party
+        # 自带 LLD 15.0.4 + libc++ 15，其符号表无
+        # std::exception_ptr::__from_native_exception_pointer（LLVM 16+
+        # 才引入）。用 20240619（LLVM 18）编出的 libOpenAL32.a 在最终
+        # DLL 链接时报该符号 undefined（本地 win x86 实测）。
+        default: "https://github.com/mstorsjo/llvm-mingw/releases/download/20220906/llvm-mingw-20220906-msvcrt-x86_64.zip"
+
+permissions:
+  contents: read
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    outputs:
+      arches: ${{ steps.set.outputs.arches }}
+    steps:
+      - id: set
+        run: |
+          if [ -n "${{ inputs.arches }}" ]; then
+            echo "arches=[$(echo "${{ inputs.arches }}" | awk -F',' '{for(i=1;i<=NF;i++){gsub(/ /,"",$i); printf "%s\"%s\"", (i>1?",":""), $i}}')]" >> "$GITHUB_OUTPUT"
+          else
+            echo 'arches=["x86_64","arm64-v8a"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: config
+    name: ${{ matrix.arch }}
+    runs-on: windows-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(needs.config.outputs.arches) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MSYS2 + mingw-w64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          update: false
+          msystem: MINGW64
+          # CI-PATCH: 固定安装根——runner 预装的 C:\msys64 是精简实例（无 perl）。
+          # 注意 setup-msys2 的合法输入名是 location（不是 destination），
+          # 安装后经 MSYS2_ROOT 传给各 build.py（httpclient 的 openssl 需要 perl）
+          location: C:\msys2-full
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            make
+            perl
+            python
+
+      - name: Export MSYS2 root
+        shell: pwsh
+        run: |
+          "MSYS2_ROOT=C:\msys2-full" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      # arm64-v8a 走 llvm-mingw（aarch64 三元组，build.py --mingw 指定）
+      # CI-PATCH: x86_64 也统一走 llvm-mingw（msvcrt 变体）——MSYS2 MINGW64
+      # 现行是 UCRT 世代，编出的静态库引用 stat64i32/nanosleep64/
+      # pthread_cond_timedwait64 等 UCRT/_o__ 符号，而产物最终由 Cangjie
+      # 工具链（third_party/mingw，msvcrt CRT + 无 winpthreads）链接，
+      # 全部 undefined（three 消费侧实测，旧成功包是 msvcrt 世代工具链
+      # 产出）。llvm-mingw msvcrt 变体一条工具链覆盖两架构，CRT 世代一致。
+      - name: Install llvm-mingw (x86_64 msvcrt)
+        if: matrix.arch == 'x86_64'
+        shell: pwsh
+        run: |
+          $url = "${{ inputs.llvm-mingw-url }}"
+          Invoke-WebRequest -Uri $url -OutFile llvm-mingw.zip
+          Expand-Archive llvm-mingw.zip -DestinationPath C:\
+          $dir = Get-ChildItem C:\ -Directory -Filter "llvm-mingw-*" | Select-Object -First 1
+          "LLVM_MINGW=$($dir.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Install llvm-mingw (arm64)
+        if: matrix.arch == 'arm64-v8a'
+        shell: pwsh
+        run: |
+          $url = "${{ inputs.llvm-mingw-url }}"
+          Invoke-WebRequest -Uri $url -OutFile llvm-mingw.zip
+          Expand-Archive llvm-mingw.zip -DestinationPath C:\
+          $dir = Get-ChildItem C:\ -Directory -Filter "llvm-mingw-*" | Select-Object -First 1
+          "LLVM_MINGW=$($dir.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build all libraries
+        shell: pwsh
+        run: |
+          # CI-PATCH: 两架构统一 --mingw 指向 llvm-mingw（msvcrt 变体），
+          # 各 build.py 的 mingw 探测优先用 --mingw 目录下的三元组编译器
+          $mingwArg = " --mingw `"$env:LLVM_MINGW`""
+          $cmd = "python .github/scripts/ci_build.py --platform WINDOWS --arch ${{ matrix.arch }}$mingwArg"
+          if ("${{ inputs.modes }}" -ne "") { $cmd += " --modes ${{ inputs.modes }}" }
+          if ("${{ inputs.libtypes }}" -ne "") { $cmd += " --libtypes ${{ inputs.libtypes }}" }
+          if ("${{ inputs.groups }}" -ne "") { $cmd += " --groups ${{ inputs.groups }}" }
+          if ("${{ inputs.libs }}" -ne "") { $cmd += " --libs ${{ inputs.libs }}" }
+          bash -lc "$cmd"
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-libs-windows-${{ matrix.arch }}
+          path: dist/native-libs-windows-*
+          retention-days: 30

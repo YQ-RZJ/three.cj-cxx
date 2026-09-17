@@ -1,0 +1,8 @@
+;
+; Definition file for the DLL version of the test/p_minimal library from OpenSSL
+;
+
+LIBRARY         "test/p_minimal"
+
+EXPORTS
+    OSSL_provider_init
