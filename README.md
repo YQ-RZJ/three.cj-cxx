@@ -1,6 +1,6 @@
 # three.cj-cxx
 
-**three.cj-cxx** is the native dependency layer of [three.cj](https://atomgit.com/), a 3D engine runtime written in the Cangjie programming language. It hosts all C/C++ native libraries required by the engine (vendored third-party sources + in-house bridging libraries) and provides a cross-platform CI build system (`.github/workflows/` + `.github/scripts/`) that produces static/dynamic library artifacts for the Cangjie-side FFI binding packages (`bgfx4cj`, `sdl4cj`, `jolt4cj`, `openalsoft4cj`, ...).
+**three.cj-cxx** is the native dependency layer of [three.cj(github)](https://github.com/YQ-RZJ/three.cj) ([three.cj(gitcode)](https://atomgit.com/yq24w/imgui4cj)), a 3D engine runtime written in the Cangjie programming language. It hosts all C/C++ native libraries required by the engine (vendored third-party sources + in-house bridging libraries) and provides a cross-platform CI build system (`.github/workflows/` + `.github/scripts/`) that produces static/dynamic library artifacts for the Cangjie-side FFI binding packages (`bgfx4cj`, `sdl4cj`, `jolt4cj`, `openalsoft4cj`, ...).
 
 > The three.cj project consumes this project's build artifacts (via CI archives `native-libs-<platform>-<arch>.zip`, packaged into its `libs/` directory); this project contains no Cangjie source code.
 

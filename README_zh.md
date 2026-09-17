@@ -1,6 +1,6 @@
 # three.cj-cxx
 
-**three.cj-cxx** 是仓颉 3D 引擎运行时 [three.cj](https://atomgit.com/) 的原生依赖层项目：集中托管引擎所需全部 C/C++ 原生库（三方 vendored 源码 + 自研桥接库），并提供一套跨平台 CI 构建体系（`.github/workflows/` + `.github/scripts/`），产出仓颉侧 FFI 绑定包（`bgfx4cj`、`sdl4cj`、`jolt4cj`、`openalsoft4cj` 等）可链接的静态/动态库产物。
+**three.cj-cxx** 是仓颉 3D 引擎运行时 [three.cj(github)](https://github.com/YQ-RZJ/three.cj) ([three.cj(gitcode)](https://atomgit.com/yq24w/imgui4cj)) 的原生依赖层项目：集中托管引擎所需全部 C/C++ 原生库（三方 vendored 源码 + 自研桥接库），并提供一套跨平台 CI 构建体系（`.github/workflows/` + `.github/scripts/`），产出仓颉侧 FFI 绑定包（`bgfx4cj`、`sdl4cj`、`jolt4cj`、`openalsoft4cj` 等）可链接的静态/动态库产物。
 
 > three.cj 项目通过 CI 产物（`native-libs-<platform>-<arch>.zip`，归包至其 `libs/` 目录）消费本项目的构建结果；本项目不包含任何仓颉源码。
 
