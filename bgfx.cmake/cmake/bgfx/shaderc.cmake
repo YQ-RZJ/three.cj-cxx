@@ -9,12 +9,18 @@
 # this software. If not, see <http://creativecommons.org/publicdomain/zero/1.0/>.
 
 # Grab the shaderc source files
+# CI-PATCH3: 只编 tools/shaderc 下自己的源，不再把 ${BGFX_DIR}/src/shader*
+# 编进工具可执行文件——原写法与 libbgfx.a（bgfx.cpp）双份定义
+# g_allocator/TinyStlAllocator/getUniformTypeName/nameToUniformTypeEnum，
+# 链接 duplicate symbol（CI x86_64/arm64 OHOS 实测）。这些符号一律由
+# libbgfx 提供（下方 target_link_libraries）；应用侧 bgfx.a+
+# shaderc_capi.a 共存不受影响——本改动只作用于 shaderc 可执行工具，
+# shaderc_capi 的 SHADERC_CAPI 守卫与 STATIC 不链 bgfx 策略不变。
 file(
 	GLOB
 	SHADERC_SOURCES #
 	${BGFX_DIR}/tools/shaderc/*.cpp #
 	${BGFX_DIR}/tools/shaderc/*.h #
-	${BGFX_DIR}/src/shader* #
 )
 
 add_executable(shaderc ${SHADERC_SOURCES})
