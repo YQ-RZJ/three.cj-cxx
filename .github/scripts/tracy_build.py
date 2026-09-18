@@ -816,6 +816,10 @@ def main():
     platforms = [p.strip().upper() for p in args.platforms.split(",") if p.strip()]
     modes = [m.strip().lower() for m in args.modes.split(",") if m.strip()]
     arches = [a.strip().lower() for a in args.arches.split(",") if a.strip()]
+    # CI-PATCH: 架构别名归一化——arm64-v8a 是 bgfx_build.py/openal_build.py
+    # 的惯例写法，归一为内部名 arm64，避免手误传 v8a 后缀时 triple 落到
+    # x86_64-linux-ohos 静默产出错误架构（设备链接报 elf64 incompatible）
+    arches = ["arm64" if a == "arm64-v8a" else a for a in arches]
 
     invalid = [p for p in platforms if p not in ALL_PLATFORMS]
     for p in invalid:

@@ -443,10 +443,22 @@ static const char* GetProcessName()
     if( buf ) processName = buf;
 #  endif
 #elif defined __OHOS__
-    // OHOS musl libc 无 getprogname/program_invocation_short_name 声明，
-    // 但链接器可解析 program_invocation_short_name（libc 内部导出）
-    extern char* program_invocation_short_name;
-    if( program_invocation_short_name ) processName = program_invocation_short_name;
+    // CI-PATCH: OHOS musl 不导出 program_invocation_short_name——extern 声明
+    // 链接期解析为 0，GetProcessName 返回后 Worker 里 strlen(0) 即对 NULL
+    // 解引用（pc 项目 Worker()+0xa0 SEGV 实测）。用 /proc/self/cmdline
+    // 读取进程名（OHOS 允许进程读取自身 cmdline），失败则保持 "unknown"。
+    static char ohosProcName[64] = { 0 };
+    if( ohosProcName[0] == 0 )
+    {
+        FILE* f = fopen( "/proc/self/cmdline", "rb" );
+        if( f )
+        {
+            const size_t sz = fread( ohosProcName, 1, sizeof(ohosProcName) - 1, f );
+            fclose( f );
+            if( sz == 0 ) ohosProcName[0] = 0;
+        }
+    }
+    if( ohosProcName[0] != 0 ) processName = ohosProcName;
 #elif defined __linux__ && defined _GNU_SOURCE
     if( program_invocation_short_name ) processName = program_invocation_short_name;
 #elif defined __APPLE__ || defined __FreeBSD__ || defined __NetBSD__ || defined __OpenBSD__ || defined __DragonFly__
@@ -467,9 +479,11 @@ static const char* GetProcessExecutablePath()
 #elif defined __ANDROID__
     return nullptr;
 #elif defined __OHOS__
-    // OHOS musl 无 program_invocation_name 声明，但链接器可解析
-    extern char* program_invocation_name;
-    return program_invocation_name;
+    // CI-PATCH: OHOS musl 不导出 program_invocation_name——extern 声明
+    // 链接期解析为 0，Worker() 里 stat(NULL指向的槽) 前的 ldr [x8] 直接
+    // 对 0 解引用 SEGV（pc 项目实测）。返回 nullptr，调用方有 if(execname)
+    // 守卫（对齐 __ANDROID__ 分支行为），仅失去 exectime 特性，无功能损失。
+    return nullptr;
 #elif defined __linux__ && defined _GNU_SOURCE
     return program_invocation_name;
 #elif defined __APPLE__
@@ -715,7 +729,10 @@ static const char* GetHostInfo()
     ptr += sprintf( ptr, "Device: %s %s\n", deviceManufacturer, deviceModel );
 #endif
 #ifdef __OHOS__
-    // OHOS NDK 系统信息走 deviceinfo NDK API（对齐 Android ro.product.*）
+    // OHOS NDK 系统信息走 deviceinfo NDK API（对齐 Android ro.product.*）。
+    // 注意：应用侧必须链接 libdeviceinfo_ndk.z.so（cjpm.toml link-option
+    // 加 -ldeviceinfo_ndk.z），否则 PLT 悬空运行期跳垃圾地址 SEGV_ACCERR。
+    // 沙箱内 /proc 外部路径不可读，不能用文件读取替代（实测）。
     {
         const char* manufacturer = OH_GetManufacture();
         const char* model = OH_GetProductModel();
@@ -1290,6 +1307,10 @@ TRACY_API void StartupProfiler()
 {
     s_profilerData = (ProfilerData*)tracy_malloc( sizeof( ProfilerData ) );
     new (s_profilerData) ProfilerData();
+    // CI-PATCH: rpmalloc 初始化必须先于 SpawnWorkerThreads——原顺序先拉起
+    // Worker 再初始化分配器，Worker 入口的 rpmalloc_thread_initialize()
+    // 访问未就绪的全局堆即对 NULL 解引用（pc 项目 Worker()+0xa0 SEGV 实测）
+    rpmalloc_thread_initialize();
     s_profilerData->profiler.SpawnWorkerThreads();
     GetProfilerThreadData().token = ProducerWrapper( *s_profilerData );
     s_isProfilerStarted.store( true, std::memory_order_seq_cst );
@@ -1798,6 +1819,17 @@ void Profiler::Worker()
     ThreadExitHandler threadExitHandler;
 
     SetThreadName( "Tracy Profiler" );
+
+#ifdef TRACY_MANUAL_LIFETIME
+    // CI-PATCH: 手动生命周期模式下，Worker 线程可能在 StartupProfiler()
+    // 分配 s_profilerData 之前被静态自启动路径（GetProfiler 构造 →
+    // SpawnWorkerThreads）提前拉起——此刻 this（ProfilerData 内嵌成员）
+    // 所在对象尚未分配完成，m_timeBegin 等成员访问即对未就绪内存解引用
+    //（pc 项目 Worker()+0xa0 SEGV 实测）。等待启动方置位后再进入正常
+    // 流程；m_timeBegin 非零（SetupHwTimer 已跑）即 ProfilerData 就绪。
+    while( m_timeBegin.load( std::memory_order_relaxed ) == 0 )
+        std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
+#endif
 
 #ifdef TRACY_DATA_PORT
     const bool dataPortSearch = false;
