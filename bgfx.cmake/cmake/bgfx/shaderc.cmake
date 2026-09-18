@@ -93,6 +93,18 @@ if(BGFX_AMALGAMATED)
 	target_link_libraries(shaderc PRIVATE bgfx-shader)
 endif()
 
+# CI-PATCH2: shaderc 可执行工具须当场解析 bgfx::fatal——新版 bgfx 的
+# bx inline 头（error.inl/readerwriter.inl）经 bgfx/src/shader*.cpp 引用
+# bgfx::fatal，该符号只由 libbgfx 定义（上游有意只留一份定义：最终程序
+# 同时链接 libbgfx.a 与 libshaderc*.a 时避免重复符号）。工具是独立
+# 可执行文件、不随 three 产物分发，链接 libbgfx 无下游重复符号风险；
+# BGFX_BUILD_TOOLS=OFF（bgfx4cj 构建）时 target 不存在，跳过。
+# 注意 shaderc_capi（capi/CMakeLists.txt）不受此影响：SHARED 形态已
+# 显式链 bgfx（DLL 必须自持），STATIC 形态有意不链——留给消费者收口。
+if(TARGET bgfx)
+	target_link_libraries(shaderc PRIVATE bgfx)
+endif()
+
 set_target_properties(
 	shaderc PROPERTIES FOLDER "bgfx/tools" #
 					   OUTPUT_NAME ${BGFX_TOOLS_PREFIX}shaderc #
@@ -117,7 +129,13 @@ endif()
 
 # DXIL compiler will be dynamically loaded at runtime - no need
 # to link, just install the needed binaries alongside shaderc.exe
-if(DXCOMPILER_RUNTIME)
+# CI-PATCH: 加存在性守卫——新 upstream 已从 git 移除 tools/bin/ 预编译
+# DXC 运行时（本地 submodule f14487c7 实测 tools/bin 目录不存在），
+# 文件缺失时 copy_if_different 在链接后置失败，整个 shaderc 目标报错
+# （linux/macos/ios/android x86 job 实测 "Error copying file ... libdxcompiler.so"）。
+# DXC 后端在无该运行时时应退化为编译期不可用（SHADERC_CONFIG_HAS_DXC
+# 已由探测宏控制），不再阻塞构建。
+if(DXCOMPILER_RUNTIME AND EXISTS "${DXCOMPILER_RUNTIME}")
 	add_custom_command(
 		TARGET shaderc POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different ${DXCOMPILER_RUNTIME} $<TARGET_FILE_DIR:shaderc>
