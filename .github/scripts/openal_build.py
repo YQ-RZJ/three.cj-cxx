@@ -608,6 +608,22 @@ def toolchain_cfg(platform, arch, toolchain, host, ctx, args):
             gen_tc = _gen_ohos_toolchain(sdk, target,
                                          os.path.join(OUTPUT_DIR, "toolchains"))
             cfg += ["-DCMAKE_TOOLCHAIN_FILE=" + gen_tc]
+        # CI-PATCH6: 显式定位 OpenSL——交叉编译下 CMake find_library 不搜
+        # NDK sysroot，find_package(OpenSL) 失败 → OpenSL 后端被静默剔除
+        # （无声根因）。注意：这是三件套之一，应用侧 cjpm.toml 必须同步
+        # 加 -lOpenSLES（链接期绑定 slCreateEngine 等），否则运行期 SEGV。
+        sysroot = os.path.join(sdk, "sysroot")
+        usr_inc = os.path.join(sysroot, "usr", "include")
+        libdir = "aarch64-linux-ohos" if arch == "arm64-v8a" else "x86_64-linux-ohos"
+        opensl_lib = os.path.join(sysroot, "usr", "lib", libdir, "libOpenSLES.so")
+        if os.path.isfile(opensl_lib):
+            cfg += [
+                "-DOPENSL_LIBRARY=" + opensl_lib,
+                "-DOPENSL_INCLUDE_DIR=" + usr_inc,
+                "-DOPENSL_ANDROID_INCLUDE_DIR=" + usr_inc,
+            ]
+        else:
+            print("  [WARN] OHOS sysroot 未找到 libOpenSLES.so: " + opensl_lib)
 
     elif platform == "EMSCRIPTEN":
         tc_file = probe_emsdk(ctx["emsdk"])
