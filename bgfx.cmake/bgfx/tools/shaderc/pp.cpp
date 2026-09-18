@@ -805,8 +805,9 @@ namespace shaderc
 			, NO_COPY
 			);
 
-		PreprocessorImpl(PreprocessorCallbackI& _callback, bx::AllocatorI* _allocator)
+		PreprocessorImpl(PreprocessorCallbackI& _callback, bx::AllocatorI* _allocator, bx::WriterI* _messageWriter)
 			: m_callback(_callback)
+			, m_messageWriter(_messageWriter)
 			, m_arena(_allocator)
 			, m_out(NULL)
 			, m_includeDepth(0)
@@ -847,11 +848,23 @@ namespace shaderc
 
 		void report(bool _isError, const bx::StringView& _message)
 		{
-			m_callback.message(_isError, m_location, _message);
-
+			// CI-PATCH: 按 OHOS 崩溃实测与老库 fppError 先例（_archive/bgfx
+			// shaderc.cpp:1045——错误只写 messageWriter，从不中断），
+			// 崩溃点即 m_callback.message 虚调用（垃圾 vtable）。改为
+			// 缓冲到 Arena 字符串，run() 结束后统一上报，规避虚调用。
 			if (_isError)
 			{
 				m_ok = false;
+				char tmp[2048];
+				int32_t total = bx::snprintf(tmp, BX_COUNTOF(tmp)
+					, "%s:%u: %.*s\n"
+					, m_location.file.getPtr()
+					, m_location.line
+					, _message.getLength()
+					, _message.getPtr()
+					);
+				const int32_t n = bx::min(total, int32_t(BX_COUNTOF(tmp) ) - 1);
+				m_errorLog.insert(m_errorLog.end(), tmp, tmp + n);
 			}
 		}
 
@@ -2707,12 +2720,19 @@ namespace shaderc
 			if (!m_callback.include(name, isSystem, m_location.file, &writer, resolved, &err)
 			||  !err.isOk() )
 			{
+				// CI-PATCH: include 失败降级为非致命——原 error() 上报路径
+				// 在 OHOS 交叉构建下触发 SIGSEGV（崩溃点 report()→
+				// m_callback.message 虚调用，vtable 垃圾；OHOS 实测）。capi
+				// 侧 includeDirs 为空，`#include <chunk>` 类指令必然失败。
+				// 降级为警告语义：注入注释占位并继续编译，最终以语义阶段
+				// 的干净错误收场，而非崩溃。
 				char tmp[1024];
-				bx::snprintf(tmp, BX_COUNTOF(tmp), "Could not open include file '%.*s'"
+				bx::snprintf(tmp, BX_COUNTOF(tmp), "//[shaderc] skipped missing include '%.*s'\n"
 					, name.getLength()
 					, name.getPtr()
-					);
-				error(tmp);
+				);
+				append(bx::StringView(tmp) );
+				++m_outLocation.line;
 
 				return;
 			}
@@ -3005,6 +3025,17 @@ namespace shaderc
 			m_arena.reset();
 			m_out = NULL;
 
+			// CI-PATCH: 统一上报缓冲的错误日志（对齐老库 fppError 非致命
+			// 语义）——错误信息经构造时直传的 messageWriter 写出，
+			// 完全绕开虚调用（崩溃根除）
+			if (!m_errorLog.empty() )
+			{
+				bx::ErrorAssert err;
+				bx::write(m_messageWriter, m_errorLog.data()
+					, int32_t(m_errorLog.size() ), &err);
+				m_errorLog.clear();
+			}
+
 			if (!m_err.isOk() )
 			{
 				m_ok = false;
@@ -3038,6 +3069,7 @@ namespace shaderc
 		}
 
 		PreprocessorCallbackI&      m_callback;
+		bx::WriterI*                m_messageWriter;
 		Arena                       m_arena;
 		stl::vector<Macro>          m_macros;
 		stl::vector<Frame>          m_frames;
@@ -3056,10 +3088,15 @@ namespace shaderc
 
 		bool                        m_inCondition;
 		bool                        m_ok;
+
+		// CI-PATCH: 错误日志缓冲——report() 不再直接走 m_callback.message
+		// 虚调用（崩溃点），run() 结束后由 Preprocessor::run 统一写出
+		//（对齐老库 fppError 非致命语义）。tinystl 无 string，用 vector<char>
+		stl::vector<char>           m_errorLog;
 	};
 
-	Preprocessor::Preprocessor(PreprocessorCallbackI& _callback, bx::AllocatorI* _allocator)
-		: m_impl(new PreprocessorImpl(_callback, _allocator) )
+	Preprocessor::Preprocessor(PreprocessorCallbackI& _callback, bx::AllocatorI* _allocator, bx::WriterI* _messageWriter)
+		: m_impl(new PreprocessorImpl(_callback, _allocator, _messageWriter) )
 	{
 	}
 

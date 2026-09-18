@@ -389,7 +389,20 @@ def cmake_config(platform, mode, arch, libtype, toolchain, host, ctx):
     # 通用
     cache["CMAKE_BUILD_TYPE"] = "Debug" if mode == "debug" else "Release"
     cache["BGFX_LIBRARY_TYPE"] = "STATIC" if libtype == "static" else "SHARED"
-    cache["BGFX_BUILD_TOOLS"] = "OFF"
+    # CI-PATCH2: shaderc_capi 的 GLSL 编译后端（SHADERC_CONFIG_HAS_GLSLANG）
+    # 依赖 glslang/spirv-cross CMake targets，它们只在 BGFX_BUILD_TOOLS_
+    # SHADER=ON 时定义；全 OFF 时 capi 探测降级 GLSLANG=0 桩，运行期所有
+    # GLSL/ESSL 编译报 "GLSL compiler is not compiled in."（OHOS 300_es
+    # 实测，log.log 2026-09-17）。
+    # 注意 BGFX_BUILD_TOOLS_SHADER 是 cmake_dependent_option，依赖条件为
+    # BGFX_BUILD_TOOLS——TOOLS=OFF 时子开关可能被强制回落 OFF（CMP0126
+    # 行为随 CMake 版本变化），不可靠。故 TOOLS=ON + 显式关掉 bin2c/
+    # geometry/texture 三个子工具，只编 shaderc（glslang+spirv-cross）。
+    cache["BGFX_BUILD_TOOLS"] = "ON"
+    cache["BGFX_BUILD_TOOLS_SHADER"] = "ON"
+    cache["BGFX_BUILD_TOOLS_BIN2C"] = "OFF"
+    cache["BGFX_BUILD_TOOLS_GEOMETRY"] = "OFF"
+    cache["BGFX_BUILD_TOOLS_TEXTURE"] = "OFF"
     cache["BGFX_BUILD_EXAMPLES"] = "OFF"
     cache["BGFX_BUILD_TESTS"] = "OFF"
     cache["BGFX_INSTALL"] = "OFF"
@@ -658,6 +671,12 @@ def collect_libs(build_dir, arch):
     for root, _dirs, files in os.walk(build_dir):
         for f in files:
             if f.endswith(LIB_EXTENSIONS):
+                # CI-PATCH4: glslang/spirv-opt/spirv-cross 已由 capi 的
+                # CI-PATCH3 POST_BUILD 合并进 libshaderc_capi.a（对齐老
+                # 库 xmake 产物形态：消费侧只需单库），不再独立分发——
+                # 从产物清单剔除，避免旧包混出多余 .a
+                if f in ("libglslang.a", "libspirv-opt.a", "libspirv-cross.a"):
+                    continue
                 src = os.path.join(root, f)
                 dst = os.path.join(out_dir, f)
                 shutil.copy2(src, dst)

@@ -31,15 +31,24 @@ BX_PRAGMA_DIAGNOSTIC_POP()
 
 namespace bgfx
 {
+// CI-PATCH: SHADERC_CAPI=1 时（shaderc_capi 与 libbgfx 同时链接）跳过
+// g_allocator/TinyStlAllocator 私有副本——bgfx.cpp 已定义同名强符号，
+// 链接 .so 时 duplicate symbol（OHOS arm64 实测）。改用 bgfx 库侧定义。
+#ifndef SHADERC_CAPI
 	static bx::DefaultAllocator s_allocator;
 	bx::AllocatorI* g_allocator = &s_allocator;
+#endif // SHADERC_CAPI
 
+	// CI-PATCH: struct 声明必须保留——TINYSTL_ALLOCATOR 宏让 tinystl
+	// 头引用 bgfx::TinyStlAllocator 类型；仅跳过成员函数定义（bgfx.cpp
+	// 已有强定义，避免 duplicate symbol）。
 	struct TinyStlAllocator
 	{
 		static void* static_allocate(size_t _bytes);
 		static void static_deallocate(void* _ptr, size_t /*_bytes*/);
 	};
 
+#ifndef SHADERC_CAPI
 	void* TinyStlAllocator::static_allocate(size_t _bytes)
 	{
 		return bx::alloc(g_allocator, _bytes);
@@ -52,6 +61,7 @@ namespace bgfx
 			bx::free(g_allocator, _ptr);
 		}
 	}
+#endif // SHADERC_CAPI
 } // namespace bgfx
 
 #define TINYSTL_ALLOCATOR bgfx::TinyStlAllocator

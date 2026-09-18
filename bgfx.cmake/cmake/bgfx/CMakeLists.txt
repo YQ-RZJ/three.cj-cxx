@@ -24,8 +24,15 @@ if(BGFX_BUILD_TOOLS_SHADER)
 	include(3rdparty/spirv-opt.cmake)
 	include(3rdparty/spirv-cross.cmake)
 	include(3rdparty/glslang.cmake)
-	include(3rdparty/webgpu.cmake)
-	include(3rdparty/tint.cmake)
+	# CI-PATCH: webgpu/tint 仅 WGSL 后端需要（shaderc_wgsl.cpp +
+	# SHADERC_CONFIG_HAS_TINT）。tint(dawn) 源码与部分 NDK clang 不兼容
+	#（missing 'typename'，OHOS arm64 实测），且 shaderc_capi 硬编码
+	# HAS_TINT=0 根本不消费它——本地开关默认 OFF，WGSL 需求方自行置 ON。
+	option(BGFX_BUILD_TOOLS_SHADER_WGSL "Build WGSL (tint/webgpu) shader backend" OFF)
+	if(BGFX_BUILD_TOOLS_SHADER_WGSL)
+		include(3rdparty/webgpu.cmake)
+		include(3rdparty/tint.cmake)
+	endif()
 	include(shaderc.cmake)
 endif()
 

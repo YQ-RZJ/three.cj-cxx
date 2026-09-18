@@ -19,6 +19,12 @@ file(
 
 add_executable(shaderc ${SHADERC_SOURCES})
 
+# CI-PATCH: 显式声明 GLSL 后端可用——shaderc.h 依赖 __has_include
+# (<ShaderLang.h>) 自动探测，但 include 路径在下方才注入，探测失败时
+# compileSPIRVShader/compileGLSLShader 编成桩，链接报 undefined
+# （OHOS arm64 实测）。glslang/spirv-* 已在链接依赖中，宏置 1 一致。
+target_compile_definitions(shaderc PRIVATE SHADERC_CONFIG_HAS_GLSLANG=1)
+
 target_link_libraries(
 	shaderc
 	PRIVATE bx
@@ -27,18 +33,42 @@ target_link_libraries(
 			glslang
 			spirv-opt
 			spirv-cross
-			webgpu
-			tint
 )
+# CI-PATCH: webgpu/tint 仅在 WGSL 后端开启时链接（与 cmake/bgfx/
+# CMakeLists.txt 的 BGFX_BUILD_TOOLS_SHADER_WGSL 开关联动）——
+# targets 不存在时硬编码链接会报 dangling target 错误
+if(TARGET webgpu)
+	target_link_libraries(shaderc PRIVATE webgpu)
+endif()
+if(TARGET tint)
+	target_link_libraries(shaderc PRIVATE tint)
+endif()
 
-target_include_directories(
-	shaderc
-	PRIVATE ${BGFX_DIR}/3rdparty/dawn
-			${BGFX_DIR}/3rdparty/dawn/src
-)
+# CI-PATCH: dawn include 路径仅 WGSL 后端开启时注入——无条件注入会让
+# shaderc.h 的 __has_include(<tint/api/tint.h>) 为真，SHADERC_CONFIG_
+# HAS_TINT 默认 1，shaderc_wgsl.cpp 主体被编译却无 tint 库可链
+#（OHOS arm64 实测 missing 'typename' 编译错误）。
+if(TARGET tint)
+	target_include_directories(
+		shaderc
+		PRIVATE ${BGFX_DIR}/3rdparty/dawn
+				${BGFX_DIR}/3rdparty/dawn/src
+	)
+endif()
 
 set(DXCOMPILER_RUNTIME)
-if(UNIX
+# CI-PATCH: 排除 OHOS——OHOS 也是 UNIX（Linux 内核），但 NDK 无
+# directx-headers/无 DXC 运行时。注意两点坑（均实测）：
+# 1. CMake 原生没有 OHOS 变量，本项目判定用 BX_PLATFORM_OHOS
+#   （bgfx.cmake 自定义 option），写 `NOT OHOS` 恒为真等于没排除；
+# 2. 排除 include 路径后，shaderc.h 的 SHADERC_CONFIG_HAS_DXC 默认
+#   表达式 `BX_PLATFORM_WINDOWS || BX_PLATFORM_LINUX` 在 OHOS 下仍为
+#   真（BX_PLATFORM_LINUX=1），shaderc_dxil.cpp 会去 include
+#   <unknwnbase.h>（Windows SDK 头，NDK 无）→ fatal error。
+#   必须显式定义 SHADERC_CONFIG_HAS_DXC=0 关掉 DXC 段。
+if(BX_PLATFORM_OHOS)
+	target_compile_definitions(shaderc PRIVATE SHADERC_CONFIG_HAS_DXC=0)
+elseif(UNIX
    AND NOT APPLE
    AND NOT EMSCRIPTEN
    AND NOT ANDROID

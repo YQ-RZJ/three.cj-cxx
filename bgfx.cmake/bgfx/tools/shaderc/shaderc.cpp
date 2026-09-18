@@ -785,8 +785,14 @@ namespace bgfx
 			input.append(normalized.getPtr(), normalized.getTerm() );
 			delete [] temp;
 
+			// CI-PATCH: allocator 必须为栈对象。堆分配 + 先 delete allocator
+			// 会在 return 时 pp 析构（~Preprocessor -> ~PreprocessorImpl ->
+			// ~Arena -> reset() -> bx::free(m_allocator, ...)）时产生
+			// use-after-free（OHOS musl 下释放内存填充 0x6b6b -> SIGSEGV）。
+			// 栈分配器依赖 C++ 逆序析构：pp 后声明、先析构，allocator 最后
+			// 释放，生命周期天然正确。
 			bx::DefaultAllocator allocator;
-			shaderc::Preprocessor pp(*this, &allocator);
+			shaderc::Preprocessor pp(*this, &allocator, m_messageWriter);
 
 			for (uint32_t ii = 0, num = uint32_t(m_defines.size() ); ii < num; ++ii)
 			{
@@ -811,6 +817,8 @@ namespace bgfx
 				m_preprocessed.append( (const char*)mb.more(0), size);
 			}
 
+			// CI-PATCH: allocator 为栈对象，无需 delete；pp 先于 allocator
+			// 逆序析构，Arena 释放块时 allocator 仍存活。
 			return ok && !m_hadError;
 		}
 
@@ -886,6 +894,13 @@ namespace bgfx
 
 			bx::Error err;
 			bx::write(m_messageWriter, temp, bx::strLen(temp), &err);
+		}
+
+		// CI-PATCH: pp.h 回调接口新增——诊断日志输出流，report() 缓冲的
+		// 错误在 run() 收尾统一经此写出（非致命，对齐老库 fppError）
+		bx::WriterI* getMessageWriter() override
+		{
+			return m_messageWriter;
 		}
 
 		static bool readFile(const bx::FilePath& _filePath, bx::WriterI* _writer, bx::Error* _err)

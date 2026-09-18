@@ -114,34 +114,19 @@ endif()
 
 target_compile_definitions(shaderc_capi PRIVATE SHADERC_CAPI=1)
 
-# Backend availability, mirroring the old xmake configuration:
-#  - HLSL via D3DCompiler only on Windows
-#  - DXC (dxcompiler) disabled everywhere
-#  - GLSL/SPIR-V backends via glslang: enabled only on non-Windows platforms
-#  - TINT (WGSL) disabled everywhere (matches old SHADERC_CONFIG_HAS_TINT=0)
-#
-# Windows/MinGW 必须关闭 glslang：
-#  1. shaderc_spirv.cpp / shaderc_metal.cpp 在 GLSLANG=1 时会各自定义
-#     bgfx::g_allocator 与 bgfx::TinyStlAllocator（独立工具用的私有副本），
-#     与 libbgfx.a(bgfx.cpp.obj) 的同名强符号在下游 dll 内 duplicate symbol；
-#  2. MinGW 下 glslang 的 sprintf_s 是 UCRT 符号，与 msvcrt 冲突。
-# 关闭后 SPIR-V 走 shaderc_spirv.cpp 的 #else 桩，HLSL 仍是 Windows 主后端。
+# Backend availability — CI-PATCH2b（全平台统一）：glslang/spirv-opt/
+# spirv-cross 统一编入 libshaderc_capi.a 并合并为单库（老库 OHOS 形态
+# 实测 4721 个 glslang 符号）。曾试过按平台 profile 差异化（Windows 只
+# 要 D3DCompiler 等），后确认无必要——静态库链接按成员对象抽取，未用
+# 后端不会进下游产物，差异化只增加构建行为不一致的复杂度。
+# 全平台 GLSLANG=1；Windows s_5_0 主后端仍是 D3DCompiler，GLSL 为冗余
+# 能力（老库 xmake 时代即全量编入）；TINT(WGSL) 全平台关闭。
 if(WIN32)
 	set(SHADERC_CAPI_D3DCOMPILER 1)
-	set(SHADERC_CAPI_GLSLANG 0)
+	set(SHADERC_CAPI_GLSLANG 1)
 else()
 	set(SHADERC_CAPI_D3DCOMPILER 0)
-	# CI-PATCH: glslang/spirv-cross targets 只在 BGFX_BUILD_TOOLS_SHADER=ON
-	# 时才被定义（bgfx4cj 统一 BGFX_BUILD_TOOLS=OFF）——GLSLANG=1 会让
-	# shaderc_spirv.cpp/shaderc_metal.cpp 引用 spirv_cross:: 符号，shared
-	# 链接 libshaderc_capi.dylib 时无库可解析，报 Undefined symbols
-	# （macos x86_64 job 实测；Windows 靠 GLSLANG=0 桩躲过）。无 target
-	# 时降级走 #else 桩，与 Windows 同策略。
-	if(TARGET spirv-cross AND TARGET glslang)
-		set(SHADERC_CAPI_GLSLANG 1)
-	else()
-		set(SHADERC_CAPI_GLSLANG 0)
-	endif()
+	set(SHADERC_CAPI_GLSLANG 1)
 endif()
 
 target_compile_definitions(shaderc_capi PRIVATE
@@ -192,6 +177,42 @@ else()
 				bimg #
 				bgfx-vertexlayout #
 				${SHADERC_CAPI_SHADER_DEPS} #
+	)
+endif()
+
+# CI-PATCH3: 静态库产物合并——老库（xmake 时代）仅 OHOS 的
+# libshaderc_capi.a 内嵌 glslang/spirv-opt/spirv-cross（实测 4721 个
+# glslang 符号；mac/ios/linux 老库均为 0，GLSLANG 桩态）；bgfx.cmake
+# 默认拆开分发。故仅在 GLSLANG 真实启用时合并（Windows GLSLANG=0
+# 有 duplicate symbol 风险，见上；且无 deps 可合并）。
+if(NOT BGFX_LIBRARY_TYPE STREQUAL SHARED AND SHADERC_CAPI_SHADER_DEPS)
+	set(_SC_MERGE_DIR "${CMAKE_CURRENT_BINARY_DIR}/merge_deps")
+	# CI-PATCH3b: 每个依赖抽取到独立子目录——Windows 文件系统大小写
+	# 不敏感，多个归档的同名成员（实测：glslang 的 Pp.cpp.o 与 shaderc
+	# 的 pp.cpp.o）在同一目录 ar x 互相覆盖，回填归档丢失 shaderc 的
+	# Preprocessor 实现，运行期 GOT 槽空引用 SIGSEGV（OHOS 实测）。
+	# 构造 make_directory 命令列表（configure 期展开，须先于 POST_BUILD 定义）
+	set(_SC_MKDIR_CMDS)
+	foreach(_dep ${SHADERC_CAPI_SHADER_DEPS})
+		list(APPEND _SC_MKDIR_CMDS COMMAND ${CMAKE_COMMAND} -E make_directory ${_SC_MERGE_DIR}/${_dep})
+	endforeach()
+	add_custom_command(TARGET shaderc_capi POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E rm -rf ${_SC_MERGE_DIR}
+		COMMAND ${CMAKE_COMMAND} -E make_directory ${_SC_MERGE_DIR}
+		# 子目录须在 rm 之后、抽取段的 cd 之前重建（同段顺序执行）
+		${_SC_MKDIR_CMDS}
+	)
+	# 2) 依赖归档整库合并——ar MRI 脚本（OPEN/ADDLIB/SAVE），不解包成员，
+	# 规避 Windows 大小写不敏感文件系统的同名成员覆盖问题
+	add_custom_command(TARGET shaderc_capi POST_BUILD
+		COMMAND ${CMAKE_COMMAND}
+			-DDEPS=glslang,spirv-opt,spirv-cross
+			-DAR=${CMAKE_AR}
+			-DOUTPUT=$<TARGET_FILE:shaderc_capi>
+			-DCAPI=$<TARGET_FILE:shaderc_capi>
+			-DLIBDIR=$<TARGET_FILE_DIR:shaderc_capi>/../bgfx
+			-P ${CMAKE_CURRENT_LIST_DIR}/merge_deps.cmake
+		COMMENT "shaderc_capi: merging shader deps (${SHADERC_CAPI_SHADER_DEPS}) into single archive"
 	)
 endif()
 

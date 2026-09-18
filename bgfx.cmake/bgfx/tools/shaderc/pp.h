@@ -85,6 +85,10 @@ namespace shaderc
 			, const SourceLocation& _location
 			, const bx::StringView& _message
 			) = 0;
+
+		/// CI-PATCH: 诊断日志输出流——report() 缓冲的错误在 run() 收尾
+		/// 经此写出（对齐老库 fppError 非致命语义，规避崩溃虚调用路径）
+		virtual bx::WriterI* getMessageWriter() = 0;
 	};
 
 	inline PreprocessorCallbackI::~PreprocessorCallbackI()
@@ -112,7 +116,7 @@ namespace shaderc
 		/// @param[in] _allocator Allocator. It must not be NULL, and it must outlive
 		///   Preprocessor.
 		///
-		Preprocessor(PreprocessorCallbackI& _callback, bx::AllocatorI* _allocator);
+		Preprocessor(PreprocessorCallbackI& _callback, bx::AllocatorI* _allocator, bx::WriterI* _messageWriter);
 
 		/// Destructor.
 		///
