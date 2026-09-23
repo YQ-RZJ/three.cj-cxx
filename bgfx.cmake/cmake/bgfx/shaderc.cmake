@@ -9,12 +9,18 @@
 # this software. If not, see <http://creativecommons.org/publicdomain/zero/1.0/>.
 
 # Grab the shaderc source files
+# CI-PATCH3: 只编 tools/shaderc 下自己的源，不再把 ${BGFX_DIR}/src/shader*
+# 编进工具可执行文件——原写法与 libbgfx.a（bgfx.cpp）双份定义
+# g_allocator/TinyStlAllocator/getUniformTypeName/nameToUniformTypeEnum，
+# 链接 duplicate symbol（CI x86_64/arm64 OHOS 实测）。这些符号一律由
+# libbgfx 提供（下方 target_link_libraries）；应用侧 bgfx.a+
+# shaderc_capi.a 共存不受影响——本改动只作用于 shaderc 可执行工具，
+# shaderc_capi 的 SHADERC_CAPI 守卫与 STATIC 不链 bgfx 策略不变。
 file(
 	GLOB
 	SHADERC_SOURCES #
 	${BGFX_DIR}/tools/shaderc/*.cpp #
 	${BGFX_DIR}/tools/shaderc/*.h #
-	${BGFX_DIR}/src/shader* #
 )
 
 add_executable(shaderc ${SHADERC_SOURCES})
@@ -23,7 +29,16 @@ add_executable(shaderc ${SHADERC_SOURCES})
 # (<ShaderLang.h>) 自动探测，但 include 路径在下方才注入，探测失败时
 # compileSPIRVShader/compileGLSLShader 编成桩，链接报 undefined
 # （OHOS arm64 实测）。glslang/spirv-* 已在链接依赖中，宏置 1 一致。
-target_compile_definitions(shaderc PRIVATE SHADERC_CONFIG_HAS_GLSLANG=1)
+# CI-PATCH4: 工具同时定义 SHADERC_CAPI=1 + SHADERC_TOOL=1——CAPI 宏
+# 激活符号去重守卫（跳过 g_allocator/TinyStlAllocator/getUniformType*
+# 私有副本，统一由 libbgfx 提供，避免链接 libbgfx 后 duplicate
+# symbol；Android/macOS CI 实测）；TOOL 宏让 main() 仍编入（工具是
+# 可执行文件，capi 库侧不受影响）。
+target_compile_definitions(shaderc PRIVATE
+	SHADERC_CONFIG_HAS_GLSLANG=1
+	SHADERC_CAPI=1
+	SHADERC_TOOL=1
+)
 
 target_link_libraries(
 	shaderc

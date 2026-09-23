@@ -2773,9 +2773,9 @@ namespace bgfx
 
 } // namespace bgfx
 
-#if !SHADERC_CAPI
+#if !defined(SHADERC_CAPI) || defined(SHADERC_TOOL)
 int main(int _argc, const char* _argv[])
 {
 	return bgfx::compileShader(_argc, _argv);
 }
-#endif // !SHADERC_CAPI
+#endif // !SHADERC_CAPI || SHADERC_TOOL

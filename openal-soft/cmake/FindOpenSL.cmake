@@ -44,14 +44,21 @@ find_path(OPENSL_INCLUDE_DIR NAMES SLES/OpenSLES.h
 find_path(OPENSL_ANDROID_INCLUDE_DIR NAMES SLES/OpenSLES_Android.h
     DOC "The OpenSL Android include directory")
 
+# CI-PATCH: 新 OHOS SDK sysroot 只有 SLES/OpenSLES.h/OpenSLES_Platform.h/
+# OpenSLES_OpenHarmony.h，无 Android 专有 OpenSLES_Android.h（opensl.cpp
+# 的 __OHOS__ 分支不消费它）——缺失时回退主 include 目录，不再判失败。
+# Android 平台该头存在，行为不变；OHOS 得以启用后端（对齐老库有声行为）。
+if(NOT OPENSL_ANDROID_INCLUDE_DIR)
+    set(OPENSL_ANDROID_INCLUDE_DIR "${OPENSL_INCLUDE_DIR}")
+endif()
+
 find_library(OPENSL_LIBRARY NAMES OpenSLES
     DOC "The OpenSL library")
 
 # handle the QUIETLY and REQUIRED arguments and set OPENSL_FOUND to TRUE if
 # all listed variables are TRUE
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(OpenSL REQUIRED_VARS OPENSL_LIBRARY OPENSL_INCLUDE_DIR
-    OPENSL_ANDROID_INCLUDE_DIR)
+find_package_handle_standard_args(OpenSL REQUIRED_VARS OPENSL_LIBRARY OPENSL_INCLUDE_DIR)
 
 if(OPENSL_FOUND)
     set(OPENSL_LIBRARIES ${OPENSL_LIBRARY})

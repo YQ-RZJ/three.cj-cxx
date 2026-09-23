@@ -22,13 +22,38 @@ string(APPEND _script "SAVE\nEND\n")
 set(_script_file "${OUTPUT}.mri")
 file(WRITE "${_script_file}" "${_script}")
 
-execute_process(
-    COMMAND "${AR}" -M
-    INPUT_FILE "${_script_file}"
-    RESULT_VARIABLE _res
-)
+# CI-PATCH5: macOS 的 BSD ar 不支持 MRI 脚本（ar -M 直接打印 usage 失败，
+# macOS CI 实测）——macOS 用 Xcode libtool -static 整库合并（语义等价、
+# 成员按需抽取）；其它平台（Windows llvm-ar / Linux GNU/llvm-ar）保留
+# MRI 方式——防 Windows 大小写不敏感文件系统同名成员覆盖（Pp.cpp.o）。
+if(APPLE)
+    set(_libtool_args "")
+    list(APPEND _libtool_args "-static" "-o" "${OUTPUT}" "${CAPI}")
+    foreach(_dep ${DEPS})
+        list(APPEND _libtool_args "${LIBDIR}/lib${_dep}.a")
+    endforeach()
+    execute_process(
+        COMMAND xcrun -f libtool
+        OUTPUT_VARIABLE _libtool
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE _lt_res
+    )
+    if(NOT _lt_res EQUAL 0)
+        set(_libtool "libtool")
+    endif()
+    execute_process(
+        COMMAND "${_libtool}" ${_libtool_args}
+        RESULT_VARIABLE _res
+    )
+else()
+    execute_process(
+        COMMAND "${AR}" -M
+        INPUT_FILE "${_script_file}"
+        RESULT_VARIABLE _res
+    )
+endif()
 if(NOT _res EQUAL 0)
-    message(FATAL_ERROR "merge_deps: ar -M failed (${_res})")
+    message(FATAL_ERROR "merge_deps: archive merge failed (${_res})")
 endif()
 execute_process(
     COMMAND "${CMAKE_COMMAND}" -E rm -f "${_script_file}"
