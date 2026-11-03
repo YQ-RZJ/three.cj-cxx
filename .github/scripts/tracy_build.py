@@ -570,13 +570,16 @@ def compile_cmd(platform, mode, arch, ctx, args):
         return (["clang++"] + flags + [sdk_path] + opt + common_defs, "ar", False)
 
     if platform == "OSX":
+        # CI-PATCH: 必须带 common_defs（TRACY_ENABLE 等）——缺失时
+        # TracyClient.cpp 编译成纯桩，libtracyc.a 仅 2.6KB、无任何
+        # ____tracy_emit_* 运行时符号，消费侧链接 three.profiler 报
+        # undefined symbol（macos arm64 job 实测）。对齐 IOS 分支。
         flags = ["-std=c++17", "-fno-omit-frame-pointer", "-fPIC",
                  "-arch", "arm64" if arch == "arm64" else "x86_64",
                  "-mmacosx-version-min=%s" % args.macos_deploy_target]
         if find_tool("xcrun"):
-            return (["xcrun", "clang++"] + flags + ["-O2" if mode == "release" else "-O0"],
-                    "ar", False)
-        return (["clang++"] + flags + ["-O2" if mode == "release" else "-O0"], "ar", False)
+            return (["xcrun", "clang++"] + flags + opt + common_defs, "ar", False)
+        return (["clang++"] + flags + opt + common_defs, "ar", False)
 
     raise RuntimeError("未知平台: %s" % platform)
 
