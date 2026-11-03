@@ -574,8 +574,15 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
     # "No rule to make target 'libluajit.dylib'"（ios/osx job 实测）。
     # 故构建仍用默认 TARGET_T=libluajit.so（顺带跳过裸可执行链接），
     # 打包阶段再把 .so 重命名为 .dylib（见 package()）。
+    # static 构建则覆盖为 libluajit.a：Makefile 的 all=$(TARGET_T)，
+    # 覆盖成 .a 同样绕开裸可执行链接，且能产出 static 包需要的 .a
+    # （此前 static 组合误用 libluajit.so，导致"编译成功，但无产物
+    # 可打包"、聚合包缺 libluajit.a）。
     if platform in ("OSX", "IOS"):
-        vars.append("TARGET_T=libluajit.so")
+        if libtype == "shared":
+            vars.append("TARGET_T=libluajit.so")
+        else:
+            vars.append("TARGET_T=libluajit.a")
     if platform in ("ANDROID", "OHOS"):
         # Windows 宿主上 mingw32-make 的 shell 是 cmd.exe，LuaJIT Makefile
         # 里的 POSIX 检测/重定向全部失效，必须显式覆盖：
@@ -656,7 +663,8 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
         # 裸可执行文件。FFI 消费的只是动态库，覆盖 TARGET_T 为仅动态库，
         # 跳过可执行链接（Apple 命名 .dylib 由打包阶段重命名完成，见
         # package()；Makefile 无 libluajit.dylib 规则，不能直接覆盖）。
-        vars.append("TARGET_T=libluajit.so")
+        # static 构建同理改覆盖为 libluajit.a（见上方 OSX/IOS 分支说明）。
+        vars.append("TARGET_T=libluajit.so" if libtype == "shared" else "TARGET_T=libluajit.a")
     if mode == "debug":
         vars.append("CCDEBUG=-g")
     return vars
