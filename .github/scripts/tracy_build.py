@@ -642,7 +642,7 @@ def run_logged(cmd, env=None, log_path=None):
     return rc
 
 
-def build_one(platform, mode, arch, ctx, args, log_path):
+def build_one(platform, mode, arch, libtype, ctx, args, log_path):
     tag = "%s_%s_%s" % (platform.lower(), mode, arch)
     obj = os.path.join(OUTPUT_DIR, "obj", tag, "TracyClient.obj")
     # 库产物放组合目录（语义对齐 bgfx：output/build-<platform>-<arch>-<mode>/lib/）
@@ -668,7 +668,9 @@ def build_one(platform, mode, arch, ctx, args, log_path):
     # CI-PATCH: shared 模式编 DLL 而非静态库——TracyApi.h 的 TRACY_API
     # 由 TRACY_EXPORTS 控制 __declspec(dllexport)，单翻译单元
     # TracyClient.cpp 直接可编动态库（用户澄清：tracy 应支持 shared）
-    shared = getattr(args, "libtype", "static") == "shared"
+    # CI-PATCH3: libtype 由组合循环逐个透传（旧实现读 args.libtype
+    # 且 == 判断对 "static,shared" 恒 False，shared 从不构建）
+    shared = libtype == "shared"
     if shared:
         if is_msvc:
             cmd.insert(1, "/DTRACY_EXPORTS")
@@ -823,6 +825,9 @@ def main():
     # 的惯例写法，归一为内部名 arm64，避免手误传 v8a 后缀时 triple 落到
     # x86_64-linux-ohos 静默产出错误架构（设备链接报 elf64 incompatible）
     arches = ["arm64" if a == "arm64-v8a" else a for a in arches]
+    # CI-PATCH3: libtype 作为组合维度参与循环（旧实现 combo 循环只有
+    # mode×arch 两层，--libtype static,shared 时仅 static 被构建）
+    libtypes = [t.strip().lower() for t in args.libtype.split(",") if t.strip()]
 
     invalid = [p for p in platforms if p not in ALL_PLATFORMS]
     for p in invalid:
@@ -853,62 +858,64 @@ def main():
 
         for mode in modes:
             for arch in arches:
-                combo_name = "tracy4cj-%s-%s-%s" % (platform.lower(), arch, mode)
-                print("\n----- 组合 %s -----" % combo_name)
-                log_path = os.path.join(dist_dir, "logs", combo_name + ".log")
-                try:
-                    success = build_one(platform, mode, arch, ctx, args, log_path)
-                except Exception as e:
-                    print("  [FAIL] %s" % e)
-                    success = False
+                for libtype in libtypes:
+                    combo_name = "tracy4cj-%s-%s-%s-%s" % (platform.lower(), arch, mode, libtype)
+                    print("\n----- 组合 %s -----" % combo_name)
+                    log_path = os.path.join(dist_dir, "logs", combo_name + ".log")
+                    try:
+                        success = build_one(platform, mode, arch, libtype, ctx, args, log_path)
+                    except Exception as e:
+                        print("  [FAIL] %s" % e)
+                        success = False
 
-                if not success:
-                    any_failed = True
-                    results.append((combo_name, "fail", "编译失败，日志: %s" % log_path))
-                    if args.stop_on_error:
-                        print("\n[STOP] --stop-on-error 触发，停止后续编译")
-                        _summary(results)
-                        return 1
-                    continue
+                    if not success:
+                        any_failed = True
+                        results.append((combo_name, "fail", "编译失败，日志: %s" % log_path))
+                        if args.stop_on_error:
+                            print("\n[STOP] --stop-on-error 触发，停止后续编译")
+                            _summary(results)
+                            return 1
+                        continue
 
-                # 工具链标识（zip 命名与汇总用）
-                if platform == "WINDOWS":
-                    tc = "msvc" if getattr(args, "toolchain", None) == "msvc" else "mingw"
-                else:
-                    tc = platform.lower()
-
-                # CI-PATCH: shared 模式的产物是动态库（build_one 返回 True
-                # 已链接完成），直接定位动态库打包；扩展名分平台（Windows
-                # .dll，macOS .dylib，其余 .so——链接段同款规则）；zip 名补
-                # libtype 段（collect_dist 靠 -shared-/-static- 消解归类）
-                libtype = getattr(args, "libtype", "static").split(",")[0]
-                if libtype == "shared":
+                    # 工具链标识（zip 命名与汇总用）
                     if platform == "WINDOWS":
-                        lib_ext = "dll"
-                    elif platform == "OSX":
-                        lib_ext = "dylib"
+                        tc = "msvc" if getattr(args, "toolchain", None) == "msvc" else "mingw"
                     else:
-                        lib_ext = "so"
-                    lib_file = os.path.join(
-                        OUTPUT_DIR, "build-%s-%s-%s" % (platform.lower(), arch, mode), "lib",
-                        ("libtracycd.%s" % lib_ext if mode == "debug" else "libtracyc.%s" % lib_ext))
-                    combo_name += "-shared"
-                else:
-                    lib_file = os.path.join(
-                        OUTPUT_DIR, "build-%s-%s-%s" % (platform.lower(), arch, mode), "lib",
-                        ("libtracycd.a" if mode == "debug" else "libtracyc.a"))
-                    combo_name += "-static"
-                if args.skip_package:
-                    print("  [OK] %s 编译成功（--skip-package 不打包）" % combo_name)
-                    results.append((combo_name, "ok", "编译成功"))
-                else:
-                    zpath = package(platform, mode, arch, tc, dist_dir, lib_file, libtype)
-                    if zpath:
-                        print("  [OK] %s 编译并打包: %s" % (combo_name, zpath))
-                        results.append((combo_name, "ok", "zip: " + zpath))
+                        tc = platform.lower()
+
+                    # CI-PATCH: shared 模式的产物是动态库（build_one 返回 True
+                    # 已链接完成），直接定位动态库打包；扩展名分平台（Windows
+                    # .dll，macOS .dylib，其余 .so——链接段同款规则）；zip 名补
+                    # libtype 段（collect_dist 靠 -shared-/-static- 消解归类）
+                    # CI-PATCH3: libtype 来自组合循环（旧实现
+                    # split(",")[0] 恒取 static，shared 组合从不构建）
+                    if libtype == "shared":
+                        if platform == "WINDOWS":
+                            lib_ext = "dll"
+                        elif platform == "OSX":
+                            lib_ext = "dylib"
+                        else:
+                            lib_ext = "so"
+                        lib_file = os.path.join(
+                            OUTPUT_DIR, "build-%s-%s-%s" % (platform.lower(), arch, mode), "lib",
+                            ("libtracycd.%s" % lib_ext if mode == "debug" else "libtracyc.%s" % lib_ext))
+                        combo_name += "-shared"
                     else:
-                        print("  [OK] %s 编译成功，但无产物可打包" % combo_name)
-                        results.append((combo_name, "ok", "编译成功，未打包"))
+                        lib_file = os.path.join(
+                            OUTPUT_DIR, "build-%s-%s-%s" % (platform.lower(), arch, mode), "lib",
+                            ("libtracycd.a" if mode == "debug" else "libtracyc.a"))
+                        combo_name += "-static"
+                    if args.skip_package:
+                        print("  [OK] %s 编译成功（--skip-package 不打包）" % combo_name)
+                        results.append((combo_name, "ok", "编译成功"))
+                    else:
+                        zpath = package(platform, mode, arch, tc, dist_dir, lib_file, libtype)
+                        if zpath:
+                            print("  [OK] %s 编译并打包: %s" % (combo_name, zpath))
+                            results.append((combo_name, "ok", "zip: " + zpath))
+                        else:
+                            print("  [OK] %s 编译成功，但无产物可打包" % combo_name)
+                            results.append((combo_name, "ok", "编译成功，未打包"))
 
     _summary(results)
     return 1 if any_failed else 0
