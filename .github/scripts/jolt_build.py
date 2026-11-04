@@ -642,7 +642,7 @@ def toolchain_cfg(platform, arch, toolchain, host, ctx, args):
 
     elif platform == "IOS":
         # CI-PATCH3: arm64-sim（模拟器 arm64）同样产出 arm64 架构
-        ios_arch = "x86_64" if arch == "x86_64" else "arm64"
+        ios_arch = "x86_64" if arch in ("x86_64", "x86_64-sim") else "arm64"
         cfg += [
             "-DCMAKE_SYSTEM_NAME=iOS",
             "-DCMAKE_OSX_ARCHITECTURES=" + ios_arch,

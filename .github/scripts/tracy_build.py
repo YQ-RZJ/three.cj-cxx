@@ -561,7 +561,7 @@ def compile_cmd(platform, mode, arch, ctx, args):
         # 但 clang 架构仍是 arm64——与 x86_64 模拟器（iphonesimulator+x86_64）
         # 、真机（iphoneos+arm64）共同构成三种 iOS 产物
         is_device = arch == "arm64"
-        clang_arch = "x86_64" if arch == "x86_64" else "arm64"
+        clang_arch = "x86_64" if arch in ("x86_64", "x86_64-sim") else "arm64"
         sdk = "iphoneos" if is_device else "iphonesimulator"
         # CI-PATCH2: 部署目标标志须随 SDK 匹配——iphonesimulator 下
         # -miphoneos-version-min 是设备标志（clang 会被忽略甚至告警），
