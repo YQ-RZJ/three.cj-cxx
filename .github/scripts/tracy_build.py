@@ -503,7 +503,18 @@ def compile_cmd(platform, mode, arch, ctx, args):
         raise RuntimeError("未找到可用的 Windows 工具链")
 
     if platform == "LINUX":
-        clang = find_tool("clang++") or find_tool("g++")
+        # CI-PATCH: arm64 目标必须用带 triple 前缀的交叉编译器——
+        # 旧逻辑无论目标架构都取本机 clang++/g++，arm64 组合名下产出
+        # x86_64 静态库（单独跑 tracy 组实测，libtracyc.a ELF 头为
+        # X86-64）。交叉工具链由 CI 的 linux workflow 预装
+        # （g++-aarch64-linux-gnu）；本机 arm64 Linux 上无该前缀工具
+        # 时回退本机编译器（本机架构本就是 arm64，native 编译正确）。
+        if arch == "arm64":
+            clang = (find_tool("aarch64-linux-gnu-g++")
+                     or find_tool("aarch64-linux-gnu-clang++")
+                     or find_tool("clang++") or find_tool("g++"))
+        else:
+            clang = find_tool("clang++") or find_tool("g++")
         flags = ["-std=c++17", "-fno-omit-frame-pointer", "-fPIC", "-pthread"]
         # CI-PATCH: find_tool 返回字符串，必须包成 [clang] 再拼列表——
         # 直接 clang + flags 抛 'can only concatenate str (not "list")
