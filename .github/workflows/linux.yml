@@ -92,7 +92,11 @@ jobs:
             printf 'deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports %s-security main universe\n' "$CODENAME"
           } | sudo tee /etc/apt/sources.list.d/arm64.list >/dev/null
           sudo apt-get update
-          sudo apt-get install -y libc6:arm64 libx11-6:arm64 libx11-dev:arm64 \
+          # CI-PATCH: runner 升到 Ubuntu 26.04（resolute）后，ports 源的
+          # 部分 arm64 包版本比 runner 预装的 amd64 包旧，apt 会报
+          # "Packages were downgraded and -y was used without
+          # --allow-downgrades" 而整步失败——显式允许降级。
+          sudo apt-get install -y --allow-downgrades libc6:arm64 libx11-6:arm64 libx11-dev:arm64 \
             libxext6:arm64 libxext-dev:arm64 \
             libxfixes-dev:arm64 libxcursor-dev:arm64 libxi-dev:arm64 \
             libxrandr-dev:arm64 libxrender-dev:arm64 libxss-dev:arm64 \

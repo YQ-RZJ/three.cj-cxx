@@ -333,6 +333,14 @@ def main():
     # CI-PATCH: Windows runner 默认 cp1252，子进程中文输出统一强制 UTF-8
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
+    if args.ndk:
+        env["ANDROID_NDK_HOME"] = os.path.abspath(args.ndk)
+    if args.ohos_sdk:
+        env["OHOS_SDK_NATIVE"] = os.path.abspath(args.ohos_sdk)
+
+    plat = args.platform
+    os_dir = PLATFORM_OS_DIR[plat]
+
     # CI-PATCH: 消费侧（three.cj）把每个包链接为独立 .so，静态库必须
     # 是位置无关代码。OpenSSL 等自带 -fPIC 的库不受影响，但 SDL3 的
     # SDL3-static 等 CMake 目标默认不开 —— x86_64 消费侧实测链接报
@@ -342,13 +350,6 @@ def main():
     if plat == "LINUX":
         for k in ("CFLAGS", "CXXFLAGS"):
             env[k] = "-fPIC " + env.get(k, "").strip()
-    if args.ndk:
-        env["ANDROID_NDK_HOME"] = os.path.abspath(args.ndk)
-    if args.ohos_sdk:
-        env["OHOS_SDK_NATIVE"] = os.path.abspath(args.ohos_sdk)
-
-    plat = args.platform
-    os_dir = PLATFORM_OS_DIR[plat]
 
     # OHOS static 特例需要 SDL3.so（sdl 组 shared 产物），编译前先记录占位
     sdl_so_hint = os.path.join(DIST_ROOT, os_dir, args.arch, "shared", "libSDL3.so")
