@@ -347,12 +347,12 @@ def main():
     plat = args.platform
     os_dir = PLATFORM_OS_DIR[plat]
     # CI-PATCH4: IOS 的 dist 目录/产物命名与编译架构名解耦——
-    #   arm64-v8a        -> ios/arm64
+    #   arm64-v8a        -> ios/arm64-v8a（真机沿用消费侧约定的
+    #                       native-libs-ios-arm64-v8a-* 命名，不缩写）
     #   simulator-arm64  -> ios/arm64-sim
     #   simulator-x86_64 -> ios/x86_64-sim
     # 组脚本仍按 arch_for_script 映射后的名字编译，dist 命名统一用 dist_arch
     dist_arch = {
-        "arm64-v8a": "arm64",
         "simulator-arm64": "arm64-sim",
         "simulator-x86_64": "x86_64-sim",
     }.get(args.arch, args.arch) if plat == "IOS" else args.arch

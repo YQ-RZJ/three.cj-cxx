@@ -79,7 +79,7 @@ PLATFORM_ARCHES = {
     "OHOS":    ["arm64", "x86_64"],
     "ANDROID": ["arm64", "x86_64"],
     "MACOS":   ["arm64", "x86_64"],
-    "IOS":     ["arm64", "x86_64"],
+    "IOS":     ["arm64", "x86_64", "arm64-sim", "x86_64-sim"],
 }
 
 # OHOS NDK 默认路径 (本机 OpenHarmony SDK)

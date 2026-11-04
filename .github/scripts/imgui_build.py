@@ -115,7 +115,7 @@ PLATFORM_ARCHES = {
     "OHOS":       ["arm64-v8a", "x86_64"],
     "BSD":        ["x86_64"],
     "EMSCRIPTEN": ["x86_64"],
-    "IOS":        ["arm64-v8a", "x86_64"],
+    "IOS":        ["arm64-v8a", "x86_64", "arm64-sim", "x86_64-sim"],
     "OSX":        ["arm64-v8a", "x86_64"],
 }
 
