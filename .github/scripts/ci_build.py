@@ -454,7 +454,7 @@ def main():
     # 清理问题，兜底直收）。
     salvage_dir = os.path.join(CXX_ROOT, "ci_deps", "zips", dist_arch)
     collect = [sys.executable, os.path.join(HERE, "collect_dist.py"),
-               "--os", os_dir, "--arch", args.arch,
+               "--os", os_dir, "--arch", dist_arch,
                "--out", DIST_ROOT, "--clean",
                "--zip", os.path.join(salvage_dir, "*.zip"),
                "--zip", os.path.join(DIST_ROOT, "*.zip")]
@@ -505,8 +505,9 @@ def main():
                     os.remove(final)
                 with tarfile.open(final, "w:gz") as t:
                     # arcname 对齐包内 ./<os>/<arch>/<mode>/<libtype>
+                    # （arch 与 dist 命名一致，test 侧按同路径解包查找）
                     t.add(combo_src, arcname=os.path.join(
-                        os_dir, args.arch, mode, libtype))
+                        os_dir, dist_arch, mode, libtype))
             made += 1
             print(f"[ci] 最终压缩包: {final}")
     if made == 0:
