@@ -103,7 +103,11 @@ def script_arches(script: str) -> list:
 
 def arch_for_script(script: str, arch: str) -> str:
     """把 ci_build 的统一架构名映射为组脚本认识的架构名。
-    例如统一名 arm64-v8a 在只认 arm64 的脚本（sdl/tracy）下映射为 arm64。"""
+    例如统一名 arm64-v8a 在只认 arm64 的脚本（sdl/tracy）下映射为 arm64；
+    simulator-arm64（iOS 模拟器 arm64）映射为组脚本的 arm64-sim——
+    该名不出现在任何组脚本的 ALL_ARCHES 里，须无条件映射。"""
+    if arch == "simulator-arm64":
+        return "arm64-sim"
     sarches = script_arches(script)
     if not sarches or arch in sarches:
         return arch
@@ -340,6 +344,16 @@ def main():
 
     plat = args.platform
     os_dir = PLATFORM_OS_DIR[plat]
+    # CI-PATCH4: IOS 的 dist 目录/产物命名与编译架构名解耦——
+    #   arm64-v8a（真机）      -> ios/arm64
+    #   simulator-arm64（模拟器）-> ios/arm64-sim
+    #   x86_64（模拟器）       -> ios/x86_64-sim
+    # 组脚本仍按 arch_for_script 映射后的名字编译，dist 命名统一用 dist_arch
+    dist_arch = {
+        "arm64-v8a": "arm64",
+        "simulator-arm64": "arm64-sim",
+        "x86_64": "x86_64-sim",
+    }.get(dist_arch, dist_arch) if plat == "IOS" else dist_arch
 
     # CI-PATCH: 消费侧（three.cj）把每个包链接为独立 .so，静态库必须
     # 是位置无关代码。OpenSSL 等自带 -fPIC 的库不受影响，但 SDL3 的
@@ -352,7 +366,7 @@ def main():
             env[k] = "-fPIC " + env.get(k, "").strip()
 
     # OHOS static 特例需要 SDL3.so（sdl 组 shared 产物），编译前先记录占位
-    sdl_so_hint = os.path.join(DIST_ROOT, os_dir, args.arch, "shared", "libSDL3.so")
+    sdl_so_hint = os.path.join(DIST_ROOT, os_dir, dist_arch, "shared", "libSDL3.so")
 
     # CI-PATCH: --groups 组级按序过滤（缺省=全量，顺序以 --groups 为准）
     all_groups = PLATFORM_GROUPS[plat]
@@ -383,7 +397,7 @@ def main():
         script = os.path.join(HERE, f"{group}_build.py")
         # CI-PATCH: 各组脚本架构命名不统一（bgfx/jolt 用 arm64-v8a，
         # sdl/tracy 用 arm64），按脚本适配转发
-        script_arch = arch_for_script(script, args.arch)
+        script_arch = arch_for_script(script, dist_arch)
         cmd = [sys.executable, script,
                "--platforms", plat,
                "--arches", script_arch,
@@ -412,7 +426,7 @@ def main():
         # 各组跑完后立即暂存（见下），此处直接复用累计的暂存目录；
         # 若暂存为空再现场收集一次兜底（跳过前组时仍能收到）。
         if group == "imgui" and script_supports(script, "--deps-lib"):
-            stage = stage_imgui_deps(CXX_ROOT, args.arch)
+            stage = stage_imgui_deps(CXX_ROOT, dist_arch)
             if stage:
                 cmd += ["--deps-lib", stage]
             else:
@@ -423,12 +437,12 @@ def main():
         # （Linux 实测：httpclient 的 --clean 删掉 bgfx 产物）。累计收集，
         # 暂存目录在 cxx 根下 ci_deps/（不在各脚本 --clean 的范围内）。
         if group != "imgui":
-            stage_imgui_deps(CXX_ROOT, args.arch)
+            stage_imgui_deps(CXX_ROOT, dist_arch)
         # CI-PATCH3: 每组跑完立即抢救 zip —— 8 组的 DIST_DIR 都是共享的
         # .github/scripts/dist/，下一组 --clean 会 rmtree 它（macOS 实测：
         # 最终 zip 只剩最后两组的产物）。挪进清理范围外的 ci_deps/zips/
         # 累计暂存，归包时从这里收。
-        salvage_zips(CXX_ROOT, args.arch)
+        salvage_zips(CXX_ROOT, dist_arch)
 
     # ---- 归包：dist/<os>/<arch>/{static,shared} ----
     # CI-PATCH: 方案 A——从各组 *_build.py 产出的 zip 归包（zip 在各组跑完
@@ -436,7 +450,7 @@ def main():
     # 最后一组的产物，归包结果残缺）。zip 源：ci_deps/zips/ 暂存区（每组
     # 跑完立即抢救）+ bgfx 的 cxx/dist/（其 DIST_DIR=ROOT/dist，无共享
     # 清理问题，兜底直收）。
-    salvage_dir = os.path.join(CXX_ROOT, "ci_deps", "zips", args.arch)
+    salvage_dir = os.path.join(CXX_ROOT, "ci_deps", "zips", dist_arch)
     collect = [sys.executable, os.path.join(HERE, "collect_dist.py"),
                "--os", os_dir, "--arch", args.arch,
                "--out", DIST_ROOT, "--clean",
@@ -451,7 +465,7 @@ def main():
     if plat == "OHOS" and os.path.isfile(sdl_so_hint):
         collect += ["--sdl-so", sdl_so_hint]
     run(collect, env)
-    print(f"[ci] DONE {plat} {args.arch} -> dist/{os_dir}/{args.arch}/{{static,shared}}")
+    print(f"[ci] DONE {plat} {dist_arch} -> dist/{os_dir}/{dist_arch}/{{static,shared}}")
 
     # ---- 最终压缩包：每个 <mode>×<libtype> 组合一个包（用户约定）----
     # 命名  native-libs-<os>-<arch>-<mode>-<libtype>.<ext>
@@ -467,12 +481,12 @@ def main():
     made = 0
     for mode in ("release", "debug"):
         for libtype in ("static", "shared"):
-            combo_src = os.path.join(src_tree, args.arch, mode, libtype)
+            combo_src = os.path.join(src_tree, dist_arch, mode, libtype)
             if not os.path.isdir(combo_src) or not os.listdir(combo_src):
                 continue  # 该组合本轮未编译（如 --modes release 单模式）
             if plat == "WINDOWS":
                 final = os.path.join(
-                    DIST_ROOT, f"native-libs-windows-{args.arch}-{mode}-{libtype}.zip")
+                    DIST_ROOT, f"native-libs-windows-{dist_arch}-{mode}-{libtype}.zip")
                 if os.path.isfile(final):
                     os.remove(final)
                 with _zipfile.ZipFile(final, "w", _zipfile.ZIP_DEFLATED) as z:
@@ -484,7 +498,7 @@ def main():
             else:
                 final = os.path.join(
                     DIST_ROOT,
-                    f"native-libs-{os_dir}-{args.arch}-{mode}-{libtype}.tar.gz")
+                    f"native-libs-{os_dir}-{dist_arch}-{mode}-{libtype}.tar.gz")
                 if os.path.isfile(final):
                     os.remove(final)
                 with tarfile.open(final, "w:gz") as t:

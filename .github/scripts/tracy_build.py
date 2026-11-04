@@ -557,15 +557,20 @@ def compile_cmd(platform, mode, arch, ctx, args):
         # iphonesimulator，硬编码 iphoneos 会让 x86_64 模拟器构建
         # 产出设备架构对象）；isysroot 在 Python 侧解析（macOS runner
         # 的裸 clang 不继承 SDKROOT）。
-        sdk = "iphoneos" if arch == "arm64" else "iphonesimulator"
+        # CI-PATCH3: arm64-sim（iOS 模拟器 arm64）走 iphonesimulator，
+        # 但 clang 架构仍是 arm64——与 x86_64 模拟器（iphonesimulator+x86_64）
+        # 、真机（iphoneos+arm64）共同构成三种 iOS 产物
+        is_device = arch == "arm64"
+        clang_arch = "x86_64" if arch == "x86_64" else "arm64"
+        sdk = "iphoneos" if is_device else "iphonesimulator"
         # CI-PATCH2: 部署目标标志须随 SDK 匹配——iphonesimulator 下
         # -miphoneos-version-min 是设备标志（clang 会被忽略甚至告警），
         # 模拟器须用 -mios-simulator-version-min
         deploy = ("-miphoneos-version-min=%s" % args.ios_deploy_target
-                  if arch == "arm64" else
+                  if is_device else
                   "-mios-simulator-version-min=%s" % args.ios_deploy_target)
         flags = ["-std=c++17", "-fno-omit-frame-pointer", "-fPIC",
-                 "-arch", "arm64" if arch == "arm64" else "x86_64",
+                 "-arch", clang_arch,
                  deploy,
                  "-isysroot"]
         xcrun = find_tool("xcrun")

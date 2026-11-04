@@ -495,8 +495,10 @@ def cmake_configure_args(platform, mode, arch, libtype, toolchain, host, ctx):
         if platform == "MACOS":
             args += ["-DCMAKE_OSX_ARCHITECTURES=" + ("arm64" if arch == "arm64" else "x86_64")]
         if platform == "IOS":
+            # CI-PATCH3: arm64-sim（模拟器 arm64）同样产出 arm64 架构，
+            # 与 x86_64 模拟器（else 分支）经 sysroot=iphonesimulator 区分
             args += ["-DCMAKE_SYSTEM_NAME=iOS"]
-            args += ["-DCMAKE_OSX_ARCHITECTURES=" + ("arm64" if arch == "arm64" else "x86_64")]
+            args += ["-DCMAKE_OSX_ARCHITECTURES=" + ("x86_64" if arch == "x86_64" else "arm64")]
             if arch != "arm64":
                 args += ["-DCMAKE_OSX_SYSROOT=iphonesimulator"]
         # CI-PATCH: SDL 上游 CMakeLists 的 SDL_FRAMEWORK_USERNOTIFICATIONS/

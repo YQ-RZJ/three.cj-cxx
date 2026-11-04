@@ -1086,11 +1086,17 @@ def build_openssl(platform, arch, mode, libtype, toolchain, host, ctx, ssl_dir, 
     elif platform in ("IOS", "OSX"):
         # macOS: 使用 clang
         if platform == "IOS":
-            # iOS 需要 xcrun
-            sdk = "iphoneos" if arch == "arm64-v8a" else "iphonesimulator"
+            # iOS 需要 xcrun；arm64-sim（模拟器 arm64）走 iphonesimulator
+            is_device = arch == "arm64-v8a"
+            sdk = "iphoneos" if is_device else "iphonesimulator"
             sdk_path = subprocess.check_output(["xcrun", "--sdk", sdk, "--show-sdk-path"],
                                                stderr=subprocess.DEVNULL).decode().strip()
-            target = "arm64-apple-ios" if arch == "arm64-v8a" else "x86_64-apple-ios-simulator"
+            if is_device:
+                target = "arm64-apple-ios"
+            elif arch == "arm64-sim":
+                target = "arm64-apple-ios-simulator"
+            else:
+                target = "x86_64-apple-ios-simulator"
             env["CC"] = "xcrun -sdk %s clang" % sdk
             env["CFLAGS"] = "-target " + target + " -isysroot " + sdk_path
         else:
@@ -1202,10 +1208,17 @@ def build_tlsbridge(platform, arch, mode, host, ctx, ssl_dir, log_path, libtype=
         cflags = "-Wall -O2 -fPIC" if mode == "release" else "-Wall -g -O0 -fPIC"
         cflags += " -I" + os.path.join(ssl_dir, "include")
         if platform == "IOS":
-            sdk = "iphoneos" if arch == "arm64-v8a" else "iphonesimulator"
+            # arm64-sim（模拟器 arm64）走 iphonesimulator
+            is_device = arch == "arm64-v8a"
+            sdk = "iphoneos" if is_device else "iphonesimulator"
             sdk_path = subprocess.check_output(["xcrun", "--sdk", sdk, "--show-sdk-path"],
                                                stderr=subprocess.DEVNULL).decode().strip()
-            target = "arm64-apple-ios" if arch == "arm64-v8a" else "x86_64-apple-ios-simulator"
+            if is_device:
+                target = "arm64-apple-ios"
+            elif arch == "arm64-sim":
+                target = "arm64-apple-ios-simulator"
+            else:
+                target = "x86_64-apple-ios-simulator"
             cflags += " -target " + target + " -isysroot " + sdk_path
         else:
             target = "arm64-apple-macosx" if arch == "arm64-v8a" else "x86_64-apple-macosx"

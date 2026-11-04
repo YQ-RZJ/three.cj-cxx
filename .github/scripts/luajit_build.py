@@ -512,12 +512,21 @@ def build_config(platform, mode, arch, libtype, toolchain, host, ctx):
     elif platform == "IOS":
         if not find_tool("xcrun"):
             raise RuntimeError("IOS 需要 xcrun")
-        sdk = "iphoneos" if arch == "arm64-v8a" else "iphonesimulator"
+        # CI-PATCH3: arm64-sim（iOS 模拟器 arm64）走 iphonesimulator，
+        # --target 为 arm64-apple-ios-simulator——与真机
+        # （iphoneos + arm64-apple-ios）、x86_64 模拟器构成三种产物
+        is_device = arch == "arm64-v8a"
+        sdk = "iphoneos" if is_device else "iphonesimulator"
         sdk_path = _xcode_sdk(sdk)
         if not sdk_path:
             raise RuntimeError("无法获取 %s SDK 路径（xcrun --sdk %s --show-sdk-path）" % (sdk, sdk))
         base = _xcode_tool("clang") or "clang"
-        target = "arm64-apple-ios" if arch == "arm64-v8a" else "x86_64-apple-ios-simulator"
+        if is_device:
+            target = "arm64-apple-ios"
+        elif arch == "arm64-sim":
+            target = "arm64-apple-ios-simulator"
+        else:
+            target = "x86_64-apple-ios-simulator"
         # CI-PATCH: HOST_CC 同样补 macosx -isysroot（与 OSX 分支同因）——
         # IOS 的 host 工具（minilua/buildvm）运行在 macOS 上，CI 裸 clang
         # 不继承 SDKROOT 时 HOSTCC 阶段找不到 TargetConditionals.h 等。

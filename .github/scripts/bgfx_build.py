@@ -474,8 +474,10 @@ def cmake_config(platform, mode, arch, libtype, toolchain, host, ctx):
             cache["CMAKE_OSX_SYSROOT"] = "iphoneos"
             cache["CMAKE_OSX_ARCHITECTURES"] = "arm64"
         else:
+            # CI-PATCH3: arm64-sim（模拟器 arm64）同样产出 arm64 架构
             cache["CMAKE_OSX_SYSROOT"] = "iphonesimulator"
-            cache["CMAKE_OSX_ARCHITECTURES"] = "x86_64"
+            cache["CMAKE_OSX_ARCHITECTURES"] = (
+                "arm64" if arch == "arm64-sim" else "x86_64")
         return cache, env_over
 
     # ---- OSX：macOS 原生 clang ----

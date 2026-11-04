@@ -641,9 +641,11 @@ def toolchain_cfg(platform, arch, toolchain, host, ctx, args):
         # x86_64 本机编译无需任何参数
 
     elif platform == "IOS":
+        # CI-PATCH3: arm64-sim（模拟器 arm64）同样产出 arm64 架构
+        ios_arch = "x86_64" if arch == "x86_64" else "arm64"
         cfg += [
             "-DCMAKE_SYSTEM_NAME=iOS",
-            "-DCMAKE_OSX_ARCHITECTURES=" + ("arm64" if arch == "arm64-v8a" else "x86_64"),
+            "-DCMAKE_OSX_ARCHITECTURES=" + ios_arch,
             "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0",
         ]
         # CI-PATCH: 模拟器架构必须显式指定 iphonesimulator（对齐 imgui），
