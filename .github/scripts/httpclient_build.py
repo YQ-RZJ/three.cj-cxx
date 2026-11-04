@@ -125,12 +125,18 @@ OPENSSL_TARGET = {
         "arm64-v8a": "BSD-aarch64",
     },
     "IOS": {
-        # CI-PATCH: x86_64 是 iOS 模拟器架构，必须用 iossimulator-xcrun
-        # target——此前误用 ios64-xcrun（仅 iOS 设备/arm64），OpenSSL 被按
-        # -arch arm64 编译（ios x86_64 job 实测产物含 aes-sha1-armv8.o），
-        # tlsbridge x86_64 链接时全部 X509/OpenSSL 符号 undefined
-        "x86_64":    "iossimulator-xcrun",
-        "arm64-v8a": "ios64-xcrun",
+        # CI-PATCH: x86 模拟器必须用 iossimulator-xcrun target——此前误用
+        # ios64-xcrun（仅 iOS 设备/arm64），OpenSSL 被按 -arch arm64 编译
+        # （ios x86_64 job 实测产物含 aes-sha1-armv8.o），tlsbridge 链接
+        # 全部 X509/OpenSSL 符号 undefined。
+        # CI-PATCH3: 架构名解耦后为 arm64-sim / x86_64-sim（模拟器均
+        # iossimulator-xcrun；openssl Configure 按 --target 自配 arch，
+        # 缺失键会落到错误目标——arm64-sim 实测编进 x86_64-gcc.c 内联
+        # 汇编、x86_64-sim 产出 ELF 版 avx512 汇编被 Apple 汇编器拒绝）
+        "arm64-sim":    "iossimulator-xcrun",
+        "x86_64-sim":   "iossimulator-xcrun",
+        "arm64-v8a":    "ios64-xcrun",
+        "x86_64":       "iossimulator-xcrun",
     },
     "OSX": {
         "x86_64":    "darwin64-x86_64-cc",
